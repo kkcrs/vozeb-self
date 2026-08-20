@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## Unreleased
+
+- [视频] MiniMax 自定义查询路径 `?task_id=` 会把上游任务 ID 填进参数，不再拼成空 `task_id`；系统代理允许官方 `/v2/query/video_generation` 轮询，已创建任务可继续查询而不卡在 `query_error`。
+
 ## v0.0.6
 
 - [首页] 重做公开首页首屏、导航、输入体验和作品展示；作品随机读取作品广场的图片与视频，点击即可预览，并完成手机端与浅深主题适配。

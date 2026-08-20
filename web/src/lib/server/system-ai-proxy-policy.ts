@@ -85,7 +85,19 @@ function defaultQueryPaths(capability: LogicalModelCapability, createPaths: Arra
     const fromCreate = createPaths.filter(Boolean).map((path) => `${String(path).replace(/\/+$/, "")}/:task_id`);
     if (capability === "video") {
         const geminiOperation = apiFormat === "gemini" || createPaths.some((path) => /\/models\/:model:predictLongRunning$/i.test(String(path || ""))) ? ["/models/:model/operations/:task_id"] : [];
-        return [...geminiOperation, ...fromCreate, "/videos/:task_id", "/video/generations/:task_id", "/videos/generations/:task_id", "/result?id=:task_id", "/agnesapi?video_id=:task_id", "/v1/videos/:task_id/content", "/videos/:task_id/content"];
+        return [
+            ...geminiOperation,
+            ...fromCreate,
+            "/videos/:task_id",
+            "/video/generations/:task_id",
+            "/videos/generations/:task_id",
+            "/result?id=:task_id",
+            "/agnesapi?video_id=:task_id",
+            "/query/video_generation?task_id=",
+            "/v2/query/video_generation?task_id=",
+            "/v1/videos/:task_id/content",
+            "/videos/:task_id/content",
+        ];
     }
     if (capability === "audio") return [...fromCreate, "/audio/speech/:task_id"];
     return fromCreate;
@@ -142,7 +154,8 @@ function pathTemplatePattern(template: string, model: string, captureTaskId = fa
         .replace(/^https?:\/\/[^/]+/i, "")
         .replace(/\{\{\s*model\s*\}\}|\{model\}|:model\b/gi, model)
         .replace(/\{\{\s*(?:taskId|task_id|id)\s*\}\}|\{(?:taskId|task_id|id)\}|:(?:taskId|task_id|id)\b/gi, TASK_PARAMETER);
-    const normalized = `${withModel.startsWith("/") ? "" : "/"}${withModel}`;
+    const withTaskParameter = /=$/.test(withModel) ? `${withModel}${TASK_PARAMETER}` : withModel;
+    const normalized = `${withTaskParameter.startsWith("/") ? "" : "/"}${withTaskParameter}`;
     const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll(TASK_PARAMETER, captureTaskId ? "([^/?#&=]+)" : "[^/?#&=]+");
     return new RegExp(`^${escaped}$`, "i");
 }

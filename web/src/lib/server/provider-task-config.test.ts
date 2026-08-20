@@ -83,6 +83,9 @@ describe("provider task config", () => {
     it("renders documented cancellation paths with encoded task ids", () => {
         expect(providerTaskPath("/jobs/:task_id/cancel", "task 1")).toBe("/jobs/task%201/cancel");
         expect(providerTaskPath("/jobs?task_id={{taskId}}", "task 1")).toBe("/jobs?task_id=task%201");
+        expect(providerTaskPath("/query/video_generation?task_id=", "abc")).toBe("/query/video_generation?task_id=abc");
+        expect(providerTaskPath("/query/video_generation?task_id=abc", "abc")).toBe("/query/video_generation?task_id=abc");
+        expect(providerQueryPaths({ queryPath: "/query/video_generation?task_id=" } as never, "abc", [])).toEqual(["/query/video_generation?task_id=abc"]);
     });
 
     it("recognizes business errors returned with an HTTP 200 response", () => {

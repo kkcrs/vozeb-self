@@ -134,6 +134,8 @@ export function providerTaskPath(path: string, taskId: string) {
     const encoded = encodeURIComponent(taskId);
     const rendered = path.replace(/\{\{\s*(?:taskId|task_id|id)\s*\}\}|\{(?:taskId|task_id|id)\}|:(?:taskId|task_id|id)\b/gi, encoded);
     if (rendered !== path) return rendered;
+    if (/=$/.test(path)) return `${path}${encoded}`;
+    if (path.endsWith(`=${encoded}`) || path.endsWith(`/${encoded}`)) return path;
     const separator = path.includes("?") ? "&" : path.endsWith("/") ? "" : "/";
     return `${path}${separator}${encoded}`;
 }
