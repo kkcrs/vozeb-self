@@ -3,6 +3,18 @@ import { readProviderError } from "@/lib/server/provider-task-config";
 
 export const DEFAULT_CHANNEL_CONNECT_ERROR = "生成渠道暂时无法连接，请稍后重试或联系管理员。";
 
+export function describeOutboundConnectFailure(error: unknown) {
+    const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    if (/出站地址不允许访问|UnsafeOutboundUrlError|上游重定向地址无效/i.test(message)) return "渠道 Base URL 无法访问，请管理员检查地址是否合法。";
+    const code = outboundErrorCode(error);
+    if (code === "ENOTFOUND") return "无法解析上游域名，请管理员检查渠道 Base URL。";
+    if (code === "ECONNREFUSED") return "无法连接上游服务，请管理员检查 Base URL、端口和网络。";
+    if (code === "ECONNRESET") return "上游连接被重置，请稍后重试或联系渠道服务商。";
+    if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return "连接上游服务超时，请稍后重试。";
+    if (isFetchNetworkError(error, message) || isTimeoutError(error, message)) return DEFAULT_CHANNEL_CONNECT_ERROR;
+    return DEFAULT_CHANNEL_CONNECT_ERROR;
+}
+
 export function toSafeGenerationErrorMessage(error: unknown, fallback: string) {
     const message = generationErrorMessage(error);
     if (hasInsufficientPointsError(error)) return "积分不足";
@@ -41,8 +53,13 @@ function isTimeoutError(error: unknown, message: string) {
 function isFetchNetworkError(error: unknown, message: string) {
     if (message.toLowerCase() === "fetch failed") return true;
     if (!(error instanceof TypeError)) return false;
-    const cause = "cause" in error ? error.cause : undefined;
-    if (!cause || typeof cause !== "object") return false;
-    const code = "code" in cause ? String(cause.code) : "";
+    const code = outboundErrorCode(error);
     return ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT"].includes(code);
+}
+
+function outboundErrorCode(error: unknown) {
+    if (!(error instanceof Error)) return "";
+    const cause = "cause" in error ? error.cause : undefined;
+    if (!cause || typeof cause !== "object") return "";
+    return "code" in cause ? String(cause.code) : "";
 }

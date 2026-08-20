@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import { consumeUserPoints, getAuthSettings, isAuthInputError, isQuotaExceededError, refundUserPoints, type ApiCallFormat, type GenerationPointMultipliers, type PointUsageKind } from "@/lib/auth/store";
 import { getCurrentUser } from "@/lib/auth/session";
-import { DEFAULT_CHANNEL_CONNECT_ERROR } from "@/lib/server/generation-errors";
+import { DEFAULT_CHANNEL_CONNECT_ERROR, describeOutboundConnectFailure } from "@/lib/server/generation-errors";
 import { UnsupportedMediaContentError } from "@/lib/server/media-content-validation";
 import { acquireMediaConcurrency, withMediaConcurrency } from "@/lib/server/media-concurrency";
 import { MediaProxyResponseError, fetchSafeUpstreamMedia } from "@/lib/server/media-proxy-service";
@@ -196,8 +196,8 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         });
     } catch (error) {
         await refundConsumedPoints();
-        console.error("System API proxy request failed", error instanceof Error ? error.message : error);
-        return NextResponse.json({ error: DEFAULT_CHANNEL_CONNECT_ERROR }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
+        console.error("System API proxy request failed", { target, error: error instanceof Error ? error.message : error, code: error instanceof Error && "cause" in error && error.cause && typeof error.cause === "object" && "code" in error.cause ? String(error.cause.code) : "" });
+        return NextResponse.json({ error: describeOutboundConnectFailure(error) }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
 
     if (!upstream.ok && pointsResult) {
