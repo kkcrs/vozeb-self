@@ -236,6 +236,44 @@ describe("video task upstream reconciliation", () => {
         expect((mocks.fetchInternalApi.mock.calls[0]?.[1] as RequestInit).method).toBeUndefined();
     });
 
+    it("polls MiniMax query paths with the task id filled into an empty query parameter", async () => {
+        const task = videoTask({
+            config: {
+                channelId: "minimax-channel",
+                apiSource: "system",
+                baseUrl: "/api/ai/system/channel",
+                apiKey: "system",
+                apiFormat: "openai",
+                model: "MiniMax-H3",
+                advancedConfig: { protocol: "custom", createPath: "/video_generation", queryPath: "/query/video_generation?task_id=" } as NonNullable<VideoTask["config"]["advancedConfig"]>,
+            },
+            upstream: {
+                id: "minimax-task",
+                provider: "generation",
+                model: "MiniMax-H3",
+                pollPath: "/v2/video_generation",
+                queryPath: "/v2/query/video_generation?task_id=",
+                pointsCost: 1,
+                pointsUnits: 1,
+                pointsRecordId: "points-minimax",
+            },
+        });
+        mocks.fetchInternalApi.mockImplementation(async (url: string | URL | Request) => {
+            const href = String(url);
+            if (href.endsWith("/query/video_generation?task_id=minimax-task") && !href.includes("/v2/query/")) {
+                return json({ task_id: "minimax-task", status: "processing" });
+            }
+            return json({ error: { message: "not this query path" } }, 404);
+        });
+
+        await expect(queryVideoTaskUpstream(task, "http://localhost", "session=test")).resolves.toMatchObject({ state: "pending", status: "processing" });
+        expect(mocks.fetchInternalApi.mock.calls.map(([url]) => String(url))).toEqual([
+            "http://localhost/api/ai/system/channel/v2/query/video_generation?task_id=minimax-task",
+            "http://localhost/api/ai/system/channel/query/video_generation?task_id=minimax-task",
+        ]);
+        expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).includes("task_id=&"))).toBe(false);
+    });
+
     it("does not query upstream again before the polling interval elapses", async () => {
         const task = videoTask();
         mocks.claim.mockResolvedValue(null);

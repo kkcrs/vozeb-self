@@ -109,6 +109,28 @@ describe("system AI proxy policy", () => {
         expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["result"], search: "?id=task-one", upstreamTaskIdHint: "task-two" })).toMatchObject({ allowed: false, status: 400 });
     });
 
+    it("authorizes MiniMax query paths that append the task id after an empty query parameter", () => {
+        const base = {
+            channelId: "main",
+            upstreamModel: "vendor-video",
+            preferredLogicalModelId: "video-pro",
+            logicalModels,
+            apiFormat: "openai" as const,
+            paths: { create: ["/v2/video_generation"], query: ["/query/video_generation?task_id="] },
+        };
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["query", "video_generation"], search: "?task_id=abc" })).toMatchObject({
+            allowed: true,
+            operation: "query",
+            upstreamTaskId: "abc",
+        });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["v2", "query", "video_generation"], search: "?task_id=abc" })).toMatchObject({
+            allowed: true,
+            operation: "query",
+            upstreamTaskId: "abc",
+        });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["query", "video_generation"], search: "?task_id=" })).toMatchObject({ allowed: false, status: 404 });
+    });
+
     it("rejects unsupported methods and mismatched logical capabilities", () => {
         expect(
             authorizeSystemAiProxyRequest({

@@ -4,7 +4,8 @@ import { generationMediaProxyHeaders } from "@/lib/server/generation-media-autho
 import { finishGenerationAttempt } from "@/lib/server/generation-attempt";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
 import { resolveModelRequestTimeoutMs } from "@/lib/server/model-request-policy";
-import { isProviderBusinessError, providerQueryPaths, readProviderError, videoPollingPolicy } from "@/lib/server/provider-task-config";
+import { isProviderBusinessError, providerQueryPaths, providerTaskPath, readProviderError, videoPollingPolicy } from "@/lib/server/provider-task-config";
+import { isMiniMaxH3VideoModel, minimaxVideoQueryPath } from "@/lib/server/video-task-config";
 import { registerGenerationTaskAssetsForUser } from "@/lib/server/creative-runtime-service";
 import { normalizeVideoResult } from "@/lib/server/video-result-normalizer";
 import { VIDEO_PROVIDER_FAILED, VIDEO_PROVIDER_SUCCESS, parseVideoProviderJson, readVideoProviderHttpError, readVideoProviderStatus, readVideoProviderUrl, videoProviderMediaUrl } from "@/lib/server/video-provider-response";
@@ -146,15 +147,25 @@ async function queryVideoUpstream(task: VideoTask, origin: string, cookie: strin
     const createPath = task.upstream.pollPath || "/video/generations";
     const preset = globalAiOpcPreset(task);
     const seedanceSpecial = task.config.advancedConfig?.protocol === "seedance-special";
+    const taskId = task.upstream.id;
+    const extraQueries = [task.upstream.queryPath, ...(isMiniMaxH3VideoModel(task.config.model) ? [minimaxVideoQueryPath(createPath, task.config.advancedConfig?.queryPath), "/v2/query/video_generation?task_id="] : [])]
+        .map((path) => path?.trim())
+        .filter((path): path is string => Boolean(path))
+        .map((path) => providerTaskPath(path, taskId));
     const paths = preset?.queryPath
-        ? [preset.queryPath.replace(/:(?:task_id|taskId|id)\b/g, encodeURIComponent(task.upstream.id))]
-        : providerQueryPaths(task.config.advancedConfig, task.upstream.id, [
-              `${createPath.replace(/\/+$/, "")}/${encodeURIComponent(task.upstream.id)}`,
-              `/videos/${encodeURIComponent(task.upstream.id)}`,
-              `/video/generations/${encodeURIComponent(task.upstream.id)}`,
-              `/videos/generations/${encodeURIComponent(task.upstream.id)}`,
-              `/result?id=${encodeURIComponent(task.upstream.id)}`,
-          ]);
+        ? [preset.queryPath.replace(/:(?:task_id|taskId|id)\b/g, encodeURIComponent(taskId))]
+        : [
+              ...new Set([
+                  ...extraQueries,
+                  ...providerQueryPaths(task.config.advancedConfig, taskId, [
+                      `${createPath.replace(/\/+$/, "")}/${encodeURIComponent(taskId)}`,
+                      `/videos/${encodeURIComponent(taskId)}`,
+                      `/video/generations/${encodeURIComponent(taskId)}`,
+                      `/videos/generations/${encodeURIComponent(taskId)}`,
+                      `/result?id=${encodeURIComponent(taskId)}`,
+                  ]),
+              ]),
+          ];
     let lastError = "";
     for (const path of paths) {
         const response = await fetchInternalApi(`${origin}${task.config.baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`, {
