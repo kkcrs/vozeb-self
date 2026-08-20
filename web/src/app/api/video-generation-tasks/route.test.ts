@@ -650,10 +650,36 @@ describe("video generation candidate failover", () => {
         const upstreamBody = JSON.parse(String((mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1].body));
 
         expect(response.status).toBe(200);
-        expect(upstreamBody).toMatchObject({ model: "MiniMax-H3", duration: 5, ratio: "16:9", resolution: "2K (2013)" });
+        expect(upstreamBody).toMatchObject({ model: "MiniMax-H3", duration: 5, ratio: "16:9", resolution: "2K" });
         expect(upstreamBody).not.toHaveProperty("generate_audio");
         expect(upstreamBody).not.toHaveProperty("watermark");
         expect(upstreamBody).not.toHaveProperty("quality");
+    });
+
+    it("normalizes hardcoded 2K (2013) labels from MiniMax custom templates", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            ...settings,
+            systemChannels: [
+                {
+                    ...channels[0],
+                    models: ["MiniMax-H3"],
+                    advancedConfig: {
+                        protocol: "custom",
+                        createPath: "/video_generation",
+                        queryPath: "/query/video_generation?task_id=",
+                        requestTemplate: '{"model":"{{model}}","content":"{{content}}","duration":5,"ratio":"{{ratio}}","resolution":"2K (2013)"}',
+                    },
+                },
+            ],
+            logicalModels: [{ ...settings.logicalModels[0], bindings: [{ ...settings.logicalModels[0].bindings[0], upstreamModel: "MiniMax-H3" }] }],
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "minimax-task", status: "queued" }));
+
+        const response = await POST(request({ model: "video", videoSeconds: "5", size: "16:9", vquality: "2k" }));
+        const upstreamBody = JSON.parse(String((mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1].body));
+
+        expect(response.status).toBe(200);
+        expect(upstreamBody.resolution).toBe("2K");
     });
 
     it("selects the matching endpoint from a multi-preset GlobalAiOpc channel", async () => {
