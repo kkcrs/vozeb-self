@@ -11,7 +11,7 @@ import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
-import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoDuration, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
+import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoDuration, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
 import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 import { parseImageDimensions } from "@/lib/image-size";
 import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
@@ -338,10 +338,16 @@ export async function createUpstream(
                       firstFrame: firstFrameUrl || undefined,
                       lastFrame: lastFrameUrl || undefined,
                   })
-                : sanitizeMiniMaxVideoPayload(
-                      channel.model,
-                      buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values) as Record<string, unknown> | undefined,
-                  );
+                : isMiniMaxH3VideoModel(channel.model)
+                  ? buildMiniMaxH3VideoRequest({
+                        model: channel.model,
+                        prompt: sendPrompt,
+                        duration: values.duration,
+                        ratio: values.ratio as string,
+                        resolution: values.resolution as string,
+                        references,
+                    })
+                  : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
         ? await buildOpenAiVideoFormData({ model: channel.model, prompt: sendPrompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
         : JSON.stringify(payload);

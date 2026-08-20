@@ -73,19 +73,56 @@ export function resolveUpstreamVideoRatio(model: string, size: unknown, hasFirst
     return aspectRatio;
 }
 
+export function buildMiniMaxH3VideoRequest(input: {
+    model: string;
+    prompt: string;
+    duration: unknown;
+    ratio: string;
+    resolution: string;
+    references?: readonly VideoGenerationReference[];
+}) {
+    if (!isMiniMaxH3VideoModel(input.model)) return undefined;
+    return {
+        model: "MiniMax-H3",
+        content: miniMaxContent(input.prompt, input.references || []),
+        duration: resolveUpstreamVideoDuration(input.duration, 5, { minDurationSeconds: 4, maxDurationSeconds: 15 }),
+        ratio: input.ratio,
+        resolution: normalizeMiniMaxResolutionToken(input.resolution),
+    };
+}
+
 export function sanitizeMiniMaxVideoPayload(model: string, payload: Record<string, unknown> | undefined) {
     if (!payload || !isMiniMaxH3VideoModel(model)) return payload;
-    const next = { ...payload };
-    for (const key of ["generate_audio", "generateAudio", "watermark", "video_watermark", "quality"]) delete next[key];
-    if (typeof next.resolution === "string") next.resolution = normalizeMiniMaxResolutionToken(next.resolution);
-    return next;
+    const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+    const content = Array.isArray(payload.content) ? payload.content : undefined;
+    const text = content?.find((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text" && typeof (item as { text?: unknown }).text === "string") as { text: string } | undefined;
+    return buildMiniMaxH3VideoRequest({
+        model,
+        prompt: text?.text || prompt,
+        duration: payload.duration,
+        ratio: typeof payload.ratio === "string" ? payload.ratio : "16:9",
+        resolution: typeof payload.resolution === "string" ? payload.resolution : "768P",
+    });
 }
 
 export function normalizeMiniMaxResolutionToken(value: string) {
     const trimmed = value.trim();
-    if (/^2k(?:\s*\(2013\))?$/i.test(trimmed)) return "2K";
     if (/^768p?$/i.test(trimmed)) return "768P";
-    return trimmed;
+    if (/^(?:2k(?:\s*\(2013\))?|2160p?|4k)$/i.test(trimmed)) return "2K";
+    return trimmed === "2K" ? "2K" : "768P";
+}
+
+function miniMaxContent(prompt: string, references: readonly VideoGenerationReference[]) {
+    return [
+        { type: "text", text: prompt },
+        ...references.map((reference) =>
+            reference.type === "image"
+                ? { type: "image_url", role: reference.role === "first_frame" || reference.role === "last_frame" ? reference.role : "reference_image", image_url: { url: reference.url } }
+                : reference.type === "video"
+                  ? { type: "video_url", role: "reference_video", video_url: { url: reference.url } }
+                  : { type: "audio_url", role: "reference_audio", audio_url: { url: reference.url } },
+        ),
+    ];
 }
 
 export function videoResolutionEdge(model: string, value: unknown) {

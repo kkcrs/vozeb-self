@@ -650,10 +650,13 @@ describe("video generation candidate failover", () => {
         const upstreamBody = JSON.parse(String((mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1].body));
 
         expect(response.status).toBe(200);
-        expect(upstreamBody).toMatchObject({ model: "MiniMax-H3", duration: 5, ratio: "16:9", resolution: "2K" });
-        expect(upstreamBody).not.toHaveProperty("generate_audio");
-        expect(upstreamBody).not.toHaveProperty("watermark");
-        expect(upstreamBody).not.toHaveProperty("quality");
+        expect(upstreamBody).toEqual({
+            model: "MiniMax-H3",
+            content: [{ type: "text", text: "A test video" }],
+            duration: 5,
+            ratio: "16:9",
+            resolution: "2K",
+        });
     });
 
     it("normalizes hardcoded 2K (2013) labels from MiniMax custom templates", async () => {
@@ -679,7 +682,13 @@ describe("video generation candidate failover", () => {
         const upstreamBody = JSON.parse(String((mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1].body));
 
         expect(response.status).toBe(200);
-        expect(upstreamBody.resolution).toBe("2K");
+        expect(upstreamBody).toEqual({
+            model: "MiniMax-H3",
+            content: [{ type: "text", text: "A test video" }],
+            duration: 5,
+            ratio: "16:9",
+            resolution: "2K",
+        });
     });
 
     it("selects the matching endpoint from a multi-preset GlobalAiOpc channel", async () => {

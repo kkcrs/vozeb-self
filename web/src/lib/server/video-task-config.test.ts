@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isMiniMaxH3VideoModel, normalizeMiniMaxResolutionToken, normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
+import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, normalizeMiniMaxResolutionToken, normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
 
 describe("resolveVideoGenerationParameters", () => {
     const defaults = { imageSize: "9:16", videoQuality: "1080", videoSeconds: 10 };
@@ -94,21 +94,50 @@ describe("resolveUpstreamVideoRatio", () => {
 });
 
 describe("sanitizeMiniMaxVideoPayload", () => {
-    it("removes unsupported MiniMax fields from custom payloads", () => {
+    it("rebuilds MiniMax payloads to the documented request shape", () => {
         expect(isMiniMaxH3VideoModel("models/MiniMax-H3")).toBe(true);
         expect(
             sanitizeMiniMaxVideoPayload("MiniMax-H3", {
                 model: "MiniMax-H3",
+                prompt: "一只宠物狗在草地上奔跑",
                 resolution: "2K (2013)",
+                duration: 5,
+                ratio: "16:9",
                 generate_audio: true,
                 watermark: false,
                 quality: "2K",
+                width: 2560,
             }),
-        ).toEqual({ model: "MiniMax-H3", resolution: "2K" });
+        ).toEqual({
+            model: "MiniMax-H3",
+            content: [{ type: "text", text: "一只宠物狗在草地上奔跑" }],
+            duration: 5,
+            ratio: "16:9",
+            resolution: "2K",
+        });
+    });
+
+    it("builds official MiniMax requests without custom template fields", () => {
+        expect(
+            buildMiniMaxH3VideoRequest({
+                model: "models/MiniMax-H3",
+                prompt: "一只宠物狗",
+                duration: 5,
+                ratio: "16:9",
+                resolution: "2k",
+            }),
+        ).toEqual({
+            model: "MiniMax-H3",
+            content: [{ type: "text", text: "一只宠物狗" }],
+            duration: 5,
+            ratio: "16:9",
+            resolution: "2K",
+        });
     });
 
     it("normalizes legacy MiniMax resolution labels", () => {
         expect(normalizeMiniMaxResolutionToken("2K (2013)")).toBe("2K");
         expect(normalizeMiniMaxResolutionToken("768p")).toBe("768P");
+        expect(normalizeMiniMaxResolutionToken("720p")).toBe("768P");
     });
 });
