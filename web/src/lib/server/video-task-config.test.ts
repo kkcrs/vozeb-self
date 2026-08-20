@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, normalizeMiniMaxResolutionToken, normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
+import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, minimaxVideoCreatePaths, minimaxVideoQueryPath, normalizeMiniMaxResolutionToken, normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
 
 describe("resolveVideoGenerationParameters", () => {
     const defaults = { imageSize: "9:16", videoQuality: "1080", videoSeconds: 10 };
@@ -139,5 +139,13 @@ describe("sanitizeMiniMaxVideoPayload", () => {
         expect(normalizeMiniMaxResolutionToken("2K (2013)")).toBe("2K");
         expect(normalizeMiniMaxResolutionToken("768p")).toBe("768P");
         expect(normalizeMiniMaxResolutionToken("720p")).toBe("768P");
+    });
+});
+
+describe("minimaxVideoCreatePaths", () => {
+    it("keeps the configured path and adds the documented v2 create path", () => {
+        expect(minimaxVideoCreatePaths(["/video_generation"])).toEqual(["/video_generation", "/v2/video_generation"]);
+        expect(minimaxVideoCreatePaths(["/v2/video_generation"])).toEqual(["/v2/video_generation"]);
+        expect(minimaxVideoQueryPath("/v2/video_generation", "/query/video_generation?task_id=")).toBe("/v2/query/video_generation?task_id=");
     });
 });

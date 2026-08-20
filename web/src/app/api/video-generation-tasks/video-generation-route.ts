@@ -11,7 +11,7 @@ import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
-import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoDuration, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
+import { buildMiniMaxH3VideoRequest, isMiniMaxH3VideoModel, minimaxVideoCreatePaths, minimaxVideoQueryPath, normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoDuration, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
 import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 import { parseImageDimensions } from "@/lib/image-size";
 import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
@@ -352,7 +352,8 @@ export async function createUpstream(
         ? await buildOpenAiVideoFormData({ model: channel.model, prompt: sendPrompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
-    const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
+    const configuredCreatePaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
+    const createPaths = isMiniMaxH3VideoModel(channel.model) ? minimaxVideoCreatePaths(configuredCreatePaths) : configuredCreatePaths;
     for (const path of createPaths) {
         const response = await proxyFetch(origin, channel.baseUrl, path, cookie, {
             method: "POST",
@@ -400,7 +401,7 @@ export async function createUpstream(
             provider: "generation" as const,
             model: channel.model,
             pollPath: path,
-            queryPath: undefined,
+            queryPath: isMiniMaxH3VideoModel(channel.model) ? minimaxVideoQueryPath(path, channel.advancedConfig?.queryPath) : undefined,
             resultUrl: resultUrl || undefined,
             pointsCost: billedPointsCost(response.headers.get("x-vozeb-pro-points-cost")),
             pointsUnits: videoUnits(raw, multipliers),

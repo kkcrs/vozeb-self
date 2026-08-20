@@ -48,6 +48,17 @@ export function isMiniMaxH3VideoModel(model: string) {
     return normalized === "minimax-h3" || /^minimax-h3\b/.test(normalized);
 }
 
+export function minimaxVideoCreatePaths(configured: string[]) {
+    const official = "/v2/video_generation";
+    if (configured.some((path) => /\/v2\/video_generation\/?$/i.test(path.replace(/\?.*$/, "")))) return configured;
+    return [...configured.filter(Boolean), official];
+}
+
+export function minimaxVideoQueryPath(createPath: string, configured?: string) {
+    if (/\/v2\//i.test(createPath)) return "/v2/query/video_generation?task_id=";
+    return configured?.trim() || "/query/video_generation?task_id=";
+}
+
 export function resolveUpstreamVideoResolution(model: string, value: unknown, _options?: { requestTemplate?: string; createPath?: string }) {
     const raw = text(value);
     const normalized = raw.toLowerCase().replace(/p$/i, "");
