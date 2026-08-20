@@ -1,0 +1,9 @@
+{
+  "networkPolicy": {
+    "default": "allow"
+  },
+  "additionalReadonlyPaths": [
+    "/var/run/docker.sock"
+  ],
+  "enableSharedBuildCache": true
+}

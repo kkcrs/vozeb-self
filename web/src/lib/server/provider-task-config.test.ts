@@ -11,6 +11,7 @@ import {
     providerTaskPath,
     readProviderError,
     readProviderString,
+    resolvedProviderCreatePaths,
     templateVideoReferenceRoles,
     videoPollingPolicy,
 } from "./provider-task-config";
@@ -80,9 +81,26 @@ describe("provider task config", () => {
         expect(providerQueryPaths({ queryPath: "/tasks/:task_id" } as never, "task-one", ["/videos/task-one", "/result/task-one"])).toEqual(["/tasks/task-one"]);
     });
 
+    it("reads MiniMax-style create paths from channel operationConfigs when top-level createPath is empty", () => {
+        expect(
+            resolvedProviderCreatePaths(
+                {
+                    protocol: "custom",
+                    operationConfigs: {
+                        video: { capability: "video", protocol: "custom", createPath: "/video_generation", queryPath: "/query/video_generation?task_id=" },
+                    },
+                } as never,
+                "video",
+                ["/videos"],
+            ),
+        ).toEqual(["/video_generation"]);
+    });
+
     it("renders documented cancellation paths with encoded task ids", () => {
         expect(providerTaskPath("/jobs/:task_id/cancel", "task 1")).toBe("/jobs/task%201/cancel");
         expect(providerTaskPath("/jobs?task_id={{taskId}}", "task 1")).toBe("/jobs?task_id=task%201");
+        expect(providerTaskPath("/query/video_generation?task_id=", "432840347676956")).toBe("/query/video_generation?task_id=432840347676956");
+        expect(providerQueryPaths({ queryPath: "/query/video_generation?task_id=" } as never, "432840347676956", [])).toEqual(["/query/video_generation?task_id=432840347676956"]);
     });
 
     it("recognizes business errors returned with an HTTP 200 response", () => {

@@ -111,6 +111,14 @@ describe("model routing config", () => {
         expect(channelModelCapability(image, "opaque-image-model")).toBe("image");
     });
 
+    it("classifies MiniMax-H3 as a video model even without an explicit capability map", () => {
+        const source = channel("minimax", ["MiniMax-H3"]);
+        source.advancedConfig = { protocol: "custom" } as never;
+
+        expect(channelModelCapability(source, "MiniMax-H3")).toBe("video");
+        expect(channelDetectedCapabilities(source)).toEqual(new Set(["video"]));
+    });
+
     it("does not expose non-creative channel models to generation surfaces", () => {
         const source = channel("newapi", ["gpt-4.1", "text-embedding-3-small", "bge-reranker-v2-m3", "dots.ocr", "gcp-speech-to-text", "whisper-1", "llama-3.1-nemoguard-8b-topic-control", "tts-1"]);
         source.advancedConfig = {

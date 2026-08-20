@@ -71,7 +71,7 @@ describe("GlobalAiOpc image task paths", () => {
 
     it("normalizes ratio results to the exact upstream request while restoring custom output dimensions", () => {
         expect(resolveResultSize("low", "1:1")).toBe("1024x1024");
-        expect(resolveResultSize("high", "16:9")).toBe(resolveRequestSize("high", "16:9"));
+        expect(resolveResultSize("high", "16:9")).toBe("1360x768");
         expect(resolveResultSize(undefined, "400x600")).toBe("400x600");
         expect(resolveResultSize(undefined, "auto")).toBeUndefined();
     });
@@ -82,9 +82,13 @@ describe("GlobalAiOpc image task paths", () => {
         expect(resolveRequestSize(undefined, "16:9")).toBe("1360x768");
         expect(resolveRequestSize(undefined, "3:4")).toBe("896x1184");
         expect(resolveRequestSize(undefined, "4:3")).toBe("1184x896");
-        // 非标准比例与显式画质仍保留原有像素推导。
+        // 标准比例即使选了画质也保持固定档，避免 StepFun 等上游拒绝推导像素。
+        expect(resolveRequestSize("high", "16:9")).toBe("1360x768");
+        expect(resolveRequestSize("medium", "9:16")).toBe("768x1360");
+        expect(resolveRequestSize("high", "3:4")).toBe("896x1184");
+        // 非标准比例仍按画质推导像素。
         expect(resolveRequestSize(undefined, "3:2")).toBe("1536x1024");
-        expect(resolveRequestSize("medium", "9:16")).toBe("1536x2720");
+        expect(resolveRequestSize("medium", "3:2")).toBe("2496x1664");
     });
 
     it("uses the model binding timeout for synchronous requests and asynchronous polling", () => {

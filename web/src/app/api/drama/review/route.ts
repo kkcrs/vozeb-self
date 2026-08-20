@@ -8,6 +8,10 @@ import { normalizeDramaVisualReviewInput } from "@/lib/server/drama-visual-revie
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { checkRateLimit } from "@/lib/server/security";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 2400;
+
 export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });

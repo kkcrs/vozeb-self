@@ -68,12 +68,13 @@ export function normalizeDramaContentAnalysis(value: unknown, defaultVideoSecond
 export function normalizeDramaVisualAnalysis(value: unknown, shotIds: string[]): DramaVisualAnalysis {
     const allowed = new Set(shotIds);
     const seen = new Set<string>();
-    const shots = array(object(value).shots).flatMap((item) => {
+    const rawShots = array(object(value).shots);
+    const shots = rawShots.flatMap((item, index) => {
         const shot = object(item);
-        const shotId = text(shot.shotId);
+        const shotId = resolveVisualShotId(shot, index, shotIds, allowed, seen);
         const imagePrompt = text(shot.imagePrompt);
         const videoPrompt = text(shot.videoPrompt);
-        if (!allowed.has(shotId) || seen.has(shotId) || !imagePrompt || !videoPrompt) return [];
+        if (!shotId || seen.has(shotId) || !imagePrompt || !videoPrompt) return [];
         seen.add(shotId);
         return [
             {
@@ -482,6 +483,13 @@ function sameDialogue(left: string, right: string) {
 
 function dialogueKey(value: string) {
     return value.toLocaleLowerCase().replace(/[\s“”"「」『』，。！？!?、：:；;…—-]/g, "");
+}
+
+function resolveVisualShotId(shot: Record<string, unknown>, index: number, shotIds: string[], allowed: Set<string>, seen: Set<string>) {
+    const explicit = text(shot.shotId) || text(shot.id);
+    if (allowed.has(explicit) && !seen.has(explicit)) return explicit;
+    const ordered = shotIds[index] || "";
+    return !explicit && allowed.has(ordered) && !seen.has(ordered) ? ordered : "";
 }
 
 function texts(value: unknown) {

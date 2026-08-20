@@ -3,15 +3,17 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readJsonBody } from "@/lib/auth/request";
 import { getAuthSettings, isAuthInputError, refundUserPoints } from "@/lib/auth/store";
-import { describeDramaAnalysisCandidate, describeDramaModelOutput, dramaContentTool, dramaVisualTool, hasUsableDramaToolArguments, normalizeDramaContentAnalysis, normalizeDramaVisualAnalysis } from "@/lib/server/drama-analysis";
+import { describeDramaAnalysisCandidate, dramaContentTool, dramaVisualTool, hasUsableDramaToolArguments, normalizeDramaContentAnalysis, normalizeDramaVisualAnalysis } from "@/lib/server/drama-analysis";
 import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
 import { checkRateLimit } from "@/lib/server/security";
 import { hasSystemAiCharge, readSystemAiBilling, systemAiBillingHeaders, systemAiIdempotencyKey, type SystemAiBilling } from "@/lib/server/system-ai-billing";
 import { rankTextPlanningCandidates, requestStructuredText, type TextPlanningCandidate } from "@/lib/server/text-planning-runtime";
-import { dramaAnalysisText, normalizeDramaVisualInput, type DramaAnalyzeBody } from "@/lib/server/drama-analysis-input";
+import { buildDramaVisualWindowInput, compactDramaVisualContinuity, dramaAnalysisText, dramaVisualShotWindows, normalizeDramaVisualInput, type DramaAnalyzeBody } from "@/lib/server/drama-analysis-input";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 2400;
 
 export async function POST(request: Request) {
     const user = await getCurrentUser();
@@ -36,60 +38,125 @@ export async function POST(request: Request) {
     const candidates = resolveLogicalModelCandidates(settings, "text", model);
     if (!model || !candidates.length) return NextResponse.json({ code: 400, data: null, msg: "后台尚未配置可用的默认文本模型" }, { status: 400 });
 
+    const origin = resolveInternalOrigin(new URL(request.url).origin);
+    const cookie = request.headers.get("cookie") || "";
+    const ranked = rankTextPlanningCandidates(candidates.map((candidate) => ({ ...candidate, channelId: candidate.channel.id })));
     let refundedPointsRemaining: number | undefined;
     try {
-        const tool = phase === "visual" ? dramaVisualTool : dramaContentTool;
-        const input = phase === "visual" ? visualInput!.payload : { script, summary: dramaAnalysisText(body.summary) };
-        const schemaInstruction = `即使渠道没有传递工具定义，也必须只返回符合以下 JSON Schema 的对象，不能返回输入对象，不能把 script 或 summary 作为顶层字段：${JSON.stringify(tool.parameters)}`;
-        const messages = [
-            {
-                role: "system",
-                content:
-                    phase === "visual"
-                        ? `你是影视视觉导演。输入内容已经由用户审核，必须严格保留每个 shotId、镜头数量、顺序、人物、场景、对白、旁白、原文和时长。为每个镜头补充图片提示词、视频提示词、起始/结束帧提示词、镜头运动和连续性数据；连续性必须明确景别、机位、构图、人物站位、视线、动作起止、屏幕运动方向和轴线规则。镜头之间要保持人物服装、道具、空间和视线关系连续。必须调用 design_drama_visuals。不要使用 Markdown。${schemaInstruction}`
-                        : `你是影视剧本编辑。只提取剧本明确存在的内容事实和镜头边界，不生成 imagePrompt、videoPrompt、镜头运动或画面风格，不添加无依据的主要情节。必须逐句保留所有角色直接说出的原话和原文明示的旁白，utterances 按原文顺序列出每一句，禁止把多句台词压缩成“某人说明/表示/询问”的剧情摘要；说话人转换、明确动作反应或场景变化都应成为可审核的镜头边界，sourceText 必须保留对应连续原文。必须调用 analyze_drama_content。不要使用 Markdown。${schemaInstruction}`,
-            },
-            { role: "user", content: JSON.stringify(input) },
-        ];
-        let latestError: unknown;
-        for (const candidate of rankTextPlanningCandidates(candidates.map((candidate) => ({ ...candidate, channelId: candidate.channel.id })))) {
-            try {
-                const call = await requestFunctionCall(
-                    resolveInternalOrigin(new URL(request.url).origin),
-                    request.headers.get("cookie") || "",
-                    candidate,
+        if (phase === "visual") {
+            const collected: ReturnType<typeof normalizeDramaVisualAnalysis>["shots"] = [];
+            let pointsRemaining: number | undefined;
+            for (const windowShots of dramaVisualShotWindows(visualInput!.payload.shots)) {
+                const windowIds = windowShots.map((shot) => shot.id);
+                const input = buildDramaVisualWindowInput(visualInput!.payload, windowShots, compactDramaVisualContinuity(collected));
+                const result = await requestPhaseAnalysis({
+                    origin,
+                    cookie,
+                    userId: user.id,
                     model,
-                    messages,
-                    user.id,
-                    tool,
-                    systemAiIdempotencyKey("drama-analyze", user.id, phase, JSON.stringify(input), candidate.channel.id, candidate.upstreamModel),
-                );
-                try {
-                    const parsed = JSON.parse(call.args);
-                    const data = phase === "visual" ? normalizeDramaVisualAnalysis(parsed, visualInput!.shotIds) : normalizeDramaContentAnalysis(parsed, settings.generationDefaults.videoSeconds, script);
-                    const resultCount = data.shots.length;
-                    const expectedCount = phase === "visual" ? visualInput!.shotIds.length : 1;
-                    if (!resultCount || (phase === "visual" && resultCount !== expectedCount)) {
-                        console.error("[drama-analyze] normalized output invalid", JSON.stringify({ phase, channelId: candidate.channel.id, model: candidate.upstreamModel, resultCount, expectedCount, shape: describeDramaAnalysisCandidate(parsed) }));
-                        throw new Error(phase === "visual" ? "模型没有为全部镜头生成视觉结构" : "模型没有生成有效内容结构");
-                    }
-                    const response = NextResponse.json({ code: 0, data, msg: phase === "visual" ? "视觉结构已生成" : "内容结构待审核" });
-                    if (typeof call.pointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(call.pointsRemaining));
-                    return response;
-                } catch (error) {
-                    if (hasSystemAiCharge(call)) refundedPointsRemaining = (await refund(user.id, model, call))?.pointsBalance;
-                    throw error;
-                }
-            } catch (error) {
-                latestError = error;
+                    ranked,
+                    phase,
+                    tool: dramaVisualTool,
+                    input,
+                    script,
+                    videoSeconds: settings.generationDefaults.videoSeconds,
+                    expectedShotIds: windowIds,
+                    onRefund: (balance) => {
+                        refundedPointsRemaining = balance;
+                    },
+                });
+                collected.push(...normalizeDramaVisualAnalysis(result.data, windowIds).shots);
+                if (typeof result.pointsRemaining === "number") pointsRemaining = result.pointsRemaining;
             }
+            if (collected.length !== visualInput!.shotIds.length) throw new Error("模型没有为全部镜头生成视觉结构");
+            const response = NextResponse.json({ code: 0, data: { shots: collected }, msg: "视觉结构已生成" });
+            if (typeof pointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(pointsRemaining));
+            return response;
         }
-        throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");
+
+        const input = { script, summary: dramaAnalysisText(body.summary) };
+        const result = await requestPhaseAnalysis({
+            origin,
+            cookie,
+            userId: user.id,
+            model,
+            ranked,
+            phase,
+            tool: dramaContentTool,
+            input,
+            script,
+            videoSeconds: settings.generationDefaults.videoSeconds,
+            onRefund: (balance) => {
+                refundedPointsRemaining = balance;
+            },
+        });
+        const response = NextResponse.json({ code: 0, data: result.data, msg: "内容结构待审核" });
+        if (typeof result.pointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(result.pointsRemaining));
+        return response;
     } catch (error) {
         const response = NextResponse.json({ code: 502, data: null, msg: error instanceof Error ? error.message : "剧本分析失败" }, { status: 502 });
         if (typeof refundedPointsRemaining === "number") response.headers.set("x-vozeb-pro-points-remaining", String(refundedPointsRemaining));
         return response;
     }
+}
+
+async function requestPhaseAnalysis(input: {
+    origin: string;
+    cookie: string;
+    userId: string;
+    model: string;
+    ranked: TextPlanningCandidate[];
+    phase: "content" | "visual";
+    tool: { name: string; description: string; parameters: Record<string, unknown> };
+    input: unknown;
+    script: string;
+    videoSeconds: number;
+    expectedShotIds?: string[];
+    onRefund: (balance: number | undefined) => void;
+}) {
+    const schemaInstruction = `即使渠道没有传递工具定义，也必须只返回符合以下 JSON Schema 的对象，不能返回输入对象，不能把 script 或 summary 作为顶层字段：${JSON.stringify(input.tool.parameters)}`;
+    const messages = [
+        {
+            role: "system",
+            content:
+                input.phase === "visual"
+                    ? `你是影视视觉导演。输入内容已经由用户审核。当前请求只包含一部分待处理镜头，必须严格保留输入 shots[] 的 id、数量和顺序，每个输出镜头的 shotId 必须原样复制输入 shots[].id，禁止改成序号、标题或新 ID，也不要输出未出现在输入中的镜头。previousVisuals 只用于相邻镜头连续，不能当作本批输出。为每个镜头补充图片提示词、视频提示词、起始/结束帧提示词、镜头运动和连续性数据；连续性必须明确景别、机位、构图、人物站位、视线、动作起止、屏幕运动方向和轴线规则。镜头之间要保持人物服装、道具、空间和视线关系连续。必须调用 design_drama_visuals。不要使用 Markdown。${schemaInstruction}`
+                    : `你是影视剧本编辑。只提取剧本明确存在的内容事实和镜头边界，不生成 imagePrompt、videoPrompt、镜头运动或画面风格，不添加无依据的主要情节。必须逐句保留所有角色直接说出的原话和原文明示的旁白，utterances 按原文顺序列出每一句，禁止把多句台词压缩成“某人说明/表示/询问”的剧情摘要；说话人转换、明确动作反应或场景变化都应成为可审核的镜头边界，sourceText 必须保留对应连续原文。必须调用 analyze_drama_content。不要使用 Markdown。${schemaInstruction}`,
+        },
+        { role: "user", content: JSON.stringify(input.input) },
+    ];
+    let latestError: unknown;
+    for (const candidate of input.ranked) {
+        try {
+            const call = await requestFunctionCall(
+                input.origin,
+                input.cookie,
+                candidate,
+                input.model,
+                messages,
+                input.userId,
+                input.tool,
+                systemAiIdempotencyKey("drama-analyze", input.userId, input.phase, JSON.stringify(input.input), candidate.channel.id, candidate.upstreamModel),
+            );
+            try {
+                const parsed = JSON.parse(call.args);
+                const data = input.phase === "visual" ? normalizeDramaVisualAnalysis(parsed, input.expectedShotIds || []) : normalizeDramaContentAnalysis(parsed, input.videoSeconds, input.script);
+                const resultCount = data.shots.length;
+                const expectedCount = input.phase === "visual" ? (input.expectedShotIds || []).length : 1;
+                if (!resultCount || (input.phase === "visual" && resultCount !== expectedCount)) {
+                    console.error("[drama-analyze] normalized output invalid", JSON.stringify({ phase: input.phase, channelId: candidate.channel.id, model: candidate.upstreamModel, resultCount, expectedCount, shape: describeDramaAnalysisCandidate(parsed) }));
+                    throw new Error(input.phase === "visual" ? "模型没有为全部镜头生成视觉结构" : "模型没有生成有效内容结构");
+                }
+                return { data, pointsRemaining: call.pointsRemaining };
+            } catch (error) {
+                if (hasSystemAiCharge(call)) input.onRefund((await refund(input.userId, input.model, call))?.pointsBalance);
+                throw error;
+            }
+        } catch (error) {
+            latestError = error;
+        }
+    }
+    throw latestError instanceof Error ? latestError : new Error("没有可用的文本模型渠道");
 }
 
 async function requestFunctionCall(

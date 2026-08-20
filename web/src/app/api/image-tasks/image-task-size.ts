@@ -43,13 +43,10 @@ export function imageRequestAspectRatio(size: string) {
 
 export function resolveSize(quality: string | undefined, ratio: string): string {
     const parsedRatio = parseImageRatio(ratio);
-    // 上游常见图片模型只接受固定档位：1024x1024 / 768x1360 / 896x1184 / 1360x768 / 1184x896。
-    // 标准比例在未指定画质（auto/空）时直接映射到固定档位，避免 9:16 被推导成 1024x1824 之类模型不支持的尺寸；
-    // 用户显式选择画质或非标准比例时保留原有像素推导。
-    if (!quality) {
-        const fixed = fixedImageSizeForRatio(parsedRatio.width, parsedRatio.height);
-        if (fixed) return fixed;
-    }
+    // 上游常见图片模型（如 StepFun）只接受固定档位：1024x1024 / 768x1360 / 896x1184 / 1360x768 / 1184x896。
+    // 标准比例始终映射到固定档位，避免「高画质」把 16:9 推成 3840x2160 被上游拒绝；非标准比例仍按画质推导像素。
+    const fixed = fixedImageSizeForRatio(parsedRatio.width, parsedRatio.height);
+    if (fixed) return fixed;
     const basePixels = quality ? QUALITY_BASE[quality] : undefined;
     const isLandscape = parsedRatio.width >= parsedRatio.height;
     const longRatio = isLandscape ? parsedRatio.width / parsedRatio.height : parsedRatio.height / parsedRatio.width;

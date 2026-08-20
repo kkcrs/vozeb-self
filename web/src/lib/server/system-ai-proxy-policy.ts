@@ -51,13 +51,14 @@ export function authorizeSystemAiProxyRequest(input: ProxyPolicyInput): SystemAi
         return allowedTaskOperation(logical, "cancel", taskIdForAccess(cancelMatch.taskId, input.upstreamTaskIdHint));
     }
 
-    const queryPaths = [...(input.paths?.query || []), ...defaultQueryPaths(logical.capability, input.paths?.create || [], input.apiFormat)];
+    const configuredCreatePaths = expandMiniMaxVideoPaths(input.paths?.create || []);
+    const queryPaths = [...(input.paths?.query || []), ...defaultQueryPaths(logical.capability, configuredCreatePaths, input.apiFormat)];
     const queryMatch = method === "GET" || method === "HEAD" ? firstPathMatch(candidates, queryPaths, upstreamModel) : null;
     if (queryMatch) {
         return allowedTaskOperation(logical, "query", taskIdForAccess(queryMatch.taskId, input.upstreamTaskIdHint));
     }
 
-    const createPaths = [...(input.paths?.create || []), ...standardCreatePaths(logical.capability, input.apiFormat)];
+    const createPaths = [...configuredCreatePaths, ...standardCreatePaths(logical.capability, input.apiFormat)];
     if (method === "POST" && createPaths.some((path) => pathMatchesAny(candidates, path, upstreamModel))) {
         if (!input.pointsUsageKind || input.pointsUsageKind === "api") return denied(400, "系统模型创建请求无法确定计费类型");
         if (input.pointsUsageKind !== logical.capability) return denied(403, "请求能力与逻辑模型不匹配");
@@ -65,6 +66,30 @@ export function authorizeSystemAiProxyRequest(input: ProxyPolicyInput): SystemAi
     }
 
     return denied(404, "系统模型代理路径未获授权");
+}
+
+/** MiniMax 创建可能回退 /v2/video_generation；授权与计费必须共用同一套扩展路径。 */
+export function expandSystemAiProxyCreatePaths(paths: Array<string | undefined>) {
+    if (!paths.some((path) => isMiniMaxVideoGenerationPath(path))) return paths.filter((path): path is string => Boolean(path?.trim()));
+    return uniqueProxyPaths([...paths, "/video_generation", "/v2/video_generation"]);
+}
+
+function expandMiniMaxVideoPaths(paths: Array<string | undefined>) {
+    return expandSystemAiProxyCreatePaths(paths);
+}
+
+function isMiniMaxVideoGenerationPath(path: string | undefined) {
+    return /\/(?:v2\/)?video_generation\/?$/i.test(String(path || "").replace(/\?.*$/, ""));
+}
+
+function uniqueProxyPaths(paths: Array<string | undefined>) {
+    const seen = new Set<string>();
+    return paths.filter((path): path is string => {
+        const value = path?.trim();
+        if (!value || seen.has(value)) return false;
+        seen.add(value);
+        return true;
+    });
 }
 
 function resolveBoundLogicalModel(logicalModels: LogicalModel[], channelId: string, upstreamModel: string, preferredLogicalModelId = "") {
@@ -85,7 +110,10 @@ function defaultQueryPaths(capability: LogicalModelCapability, createPaths: Arra
     const fromCreate = createPaths.filter(Boolean).map((path) => `${String(path).replace(/\/+$/, "")}/:task_id`);
     if (capability === "video") {
         const geminiOperation = apiFormat === "gemini" || createPaths.some((path) => /\/models\/:model:predictLongRunning$/i.test(String(path || ""))) ? ["/models/:model/operations/:task_id"] : [];
-        return [...geminiOperation, ...fromCreate, "/videos/:task_id", "/video/generations/:task_id", "/videos/generations/:task_id", "/result?id=:task_id", "/agnesapi?video_id=:task_id", "/v1/videos/:task_id/content", "/videos/:task_id/content"];
+        const minimaxQuery = createPaths.some((path) => isMiniMaxVideoGenerationPath(path))
+            ? ["/query/video_generation?task_id=:task_id", "/v2/query/video_generation?task_id=:task_id"]
+            : [];
+        return [...geminiOperation, ...fromCreate, ...minimaxQuery, "/videos/:task_id", "/video/generations/:task_id", "/videos/generations/:task_id", "/result?id=:task_id", "/agnesapi?video_id=:task_id", "/v1/videos/:task_id/content", "/videos/:task_id/content"];
     }
     if (capability === "audio") return [...fromCreate, "/audio/speech/:task_id"];
     return fromCreate;
@@ -141,7 +169,8 @@ function pathTemplatePattern(template: string, model: string, captureTaskId = fa
         .trim()
         .replace(/^https?:\/\/[^/]+/i, "")
         .replace(/\{\{\s*model\s*\}\}|\{model\}|:model\b/gi, model)
-        .replace(/\{\{\s*(?:taskId|task_id|id)\s*\}\}|\{(?:taskId|task_id|id)\}|:(?:taskId|task_id|id)\b/gi, TASK_PARAMETER);
+        .replace(/\{\{\s*(?:taskId|task_id|id)\s*\}\}|\{(?:taskId|task_id|id)\}|:(?:taskId|task_id|id)\b/gi, TASK_PARAMETER)
+        .replace(/([?&](?:task_id|taskId|video_id|id)=)(?=$|&)/gi, `$1${TASK_PARAMETER}`);
     const normalized = `${withModel.startsWith("/") ? "" : "/"}${withModel}`;
     const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll(TASK_PARAMETER, captureTaskId ? "([^/?#&=]+)" : "[^/?#&=]+");
     return new RegExp(`^${escaped}$`, "i");

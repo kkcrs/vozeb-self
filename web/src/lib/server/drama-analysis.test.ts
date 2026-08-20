@@ -168,6 +168,20 @@ describe("drama analysis contracts", () => {
         });
     });
 
+    it("maps ordered visual shots when the model omits reviewed shot ids", () => {
+        expect(
+            normalizeDramaVisualAnalysis(
+                {
+                    shots: [
+                        { imagePrompt: "江边远景", videoPrompt: "缓推" },
+                        { id: "shot-two", imagePrompt: "近景对白", videoPrompt: "固定" },
+                    ],
+                },
+                ["shot-one", "shot-two"],
+            ).shots.map((shot) => shot.shotId),
+        ).toEqual(["shot-one", "shot-two"]);
+    });
+
     it("turns upstream failures into actionable messages", () => {
         expect(readDramaUpstreamError('{"error":{"message":"无可用账号，请稍后重试"}}', 502)).toBe("无可用账号，请稍后重试");
         expect(readDramaUpstreamError("", 502)).toBe("文本模型渠道暂不可用（HTTP 502）");

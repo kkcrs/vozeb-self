@@ -1,0 +1,20 @@
+{
+  "autoRun": {
+    "allow_instructions": [
+      "Allow all read-only inspection and query commands without asking: git status, git diff, git log, git show, git branch, git rev-parse.",
+      "Allow read-only file inspection: ls, find, cat, head, tail, wc, rg, grep, read, stat, file, du, df.",
+      "Allow read-only process and port inspection: ps, ss, netstat, lsof, curl health checks against localhost.",
+      "Allow read-only Docker inspection for local development: docker ps, docker logs, docker inspect, docker exec with read-only psql SELECT queries against vozeb-pro-postgres-1.",
+      "Allow read-only database queries against the local VOZEB PRO PostgreSQL container for debugging failed generation tasks, agent runs, and generation logs.",
+      "Allow npm/pnpm/vitest/playwright test and typecheck commands that only read the workspace and report results.",
+      "Allow read-only MCP and WebFetch/WebSearch calls that retrieve documentation or inspect public pages without modifying anything."
+    ],
+    "block_instructions": [
+      "Always ask before git push, git reset --hard, git clean, git checkout that discards work, or any force operation.",
+      "Always ask before docker compose down, docker rm, docker volume rm, or deleting containers or volumes.",
+      "Always ask before DROP, DELETE, TRUNCATE, or UPDATE against production or shared databases.",
+      "Always ask before modifying .env, secrets, API keys, payment config, or admin credentials.",
+      "Always ask before rm -rf, mass file deletion, or writes outside the workspace."
+    ]
+  }
+}

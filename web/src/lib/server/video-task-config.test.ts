@@ -146,6 +146,8 @@ describe("minimaxVideoCreatePaths", () => {
     it("keeps the configured path and adds the documented v2 create path", () => {
         expect(minimaxVideoCreatePaths(["/video_generation"])).toEqual(["/video_generation", "/v2/video_generation"]);
         expect(minimaxVideoCreatePaths(["/v2/video_generation"])).toEqual(["/v2/video_generation"]);
-        expect(minimaxVideoQueryPath("/v2/video_generation", "/query/video_generation?task_id=")).toBe("/v2/query/video_generation?task_id=");
+        expect(minimaxVideoCreatePaths(["/video_generation"], "https://api.minimaxi.com/v2")).toEqual(["/video_generation"]);
+        expect(minimaxVideoQueryPath("/v2/video_generation", "/query/video_generation?task_id=")).toBe("/v2/query/video_generation?task_id=:task_id");
+        expect(minimaxVideoQueryPath("/video_generation", "/query/video_generation?task_id=")).toBe("/query/video_generation?task_id=:task_id");
     });
 });

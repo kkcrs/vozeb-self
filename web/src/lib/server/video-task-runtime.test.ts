@@ -236,6 +236,27 @@ describe("video task upstream reconciliation", () => {
         expect((mocks.fetchInternalApi.mock.calls[0]?.[1] as RequestInit).method).toBeUndefined();
     });
 
+    it("polls MiniMax query-string paths from the successful create snapshot", async () => {
+        const task = videoTask({
+            config: {
+                ...videoTask().config,
+                model: "MiniMax-H3",
+                advancedConfig: { protocol: "custom", createPath: "/video_generation", queryPath: "/query/video_generation?task_id=" } as NonNullable<VideoTask["config"]["advancedConfig"]>,
+            },
+            upstream: {
+                id: "432840347676956",
+                provider: "generation",
+                model: "MiniMax-H3",
+                pollPath: "/v2/video_generation",
+                queryPath: "/v2/query/video_generation?task_id=",
+            },
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ task_id: task.upstream.id, status: "processing" }));
+
+        await expect(queryVideoTaskUpstream(task, "http://localhost", "session=test")).resolves.toMatchObject({ state: "pending" });
+        expect(String(mocks.fetchInternalApi.mock.calls[0]?.[0])).toBe("http://localhost/api/ai/system/channel/v2/query/video_generation?task_id=432840347676956");
+    });
+
     it("does not query upstream again before the polling interval elapses", async () => {
         const task = videoTask();
         mocks.claim.mockResolvedValue(null);

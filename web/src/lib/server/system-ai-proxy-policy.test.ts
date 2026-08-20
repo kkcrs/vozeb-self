@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { authorizeSystemAiProxyRequest } from "./system-ai-proxy-policy";
+import { authorizeSystemAiProxyRequest, expandSystemAiProxyCreatePaths } from "./system-ai-proxy-policy";
 
 const logicalModels = [
     {
@@ -107,6 +107,46 @@ describe("system AI proxy policy", () => {
         expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["result"], search: "?id=task%20one" })).toMatchObject({ allowed: true, operation: "query", upstreamTaskId: "task one" });
         expect(authorizeSystemAiProxyRequest({ ...base, method: "POST", path: ["jobs", "cancel"], search: "", upstreamTaskIdHint: "task-two" })).toMatchObject({ allowed: true, operation: "cancel", upstreamTaskId: "task-two" });
         expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["result"], search: "?id=task-one", upstreamTaskIdHint: "task-two" })).toMatchObject({ allowed: false, status: 400 });
+    });
+
+    it("authorizes MiniMax query-string task paths without a :task_id placeholder", () => {
+        const base = {
+            channelId: "main",
+            upstreamModel: "minimax-h3",
+            preferredLogicalModelId: "minimax-video",
+            logicalModels: [
+                ...logicalModels,
+                {
+                    id: "minimax-video",
+                    name: "MiniMax 视频",
+                    capability: "video" as const,
+                    enabled: true,
+                    bindings: [{ id: "minimax-video", channelId: "main", upstreamModel: "minimax-h3", enabled: true, priority: 1 }],
+                },
+            ],
+            apiFormat: "openai" as const,
+            pointsUsageKind: "video" as const,
+            paths: { create: ["/video_generation"], query: ["/query/video_generation?task_id="] },
+        };
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "POST", path: ["video_generation"], search: "" })).toMatchObject({ allowed: true, operation: "create" });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "POST", path: ["v2", "video_generation"], search: "" })).toMatchObject({ allowed: true, operation: "create" });
+        expect(expandSystemAiProxyCreatePaths(["/video_generation"])).toEqual(["/video_generation", "/v2/video_generation"]);
+        expect(expandSystemAiProxyCreatePaths(["/v2/video_generation"])).toEqual(["/v2/video_generation", "/video_generation"]);
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "POST", path: ["v2", "video_generation"], search: "", pointsUsageKind: undefined })).toMatchObject({
+            allowed: false,
+            status: 400,
+            error: "系统模型创建请求无法确定计费类型",
+        });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["query", "video_generation"], search: "?task_id=432840347676956" })).toMatchObject({
+            allowed: true,
+            operation: "query",
+            upstreamTaskId: "432840347676956",
+        });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["v2", "query", "video_generation"], search: "?task_id=432840347676956" })).toMatchObject({
+            allowed: true,
+            operation: "query",
+            upstreamTaskId: "432840347676956",
+        });
     });
 
     it("rejects unsupported methods and mismatched logical capabilities", () => {

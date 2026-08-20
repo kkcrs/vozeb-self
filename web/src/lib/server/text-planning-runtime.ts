@@ -306,5 +306,5 @@ function retryableStatus(status: number) {
 }
 
 function isTimeoutError(error: unknown) {
-    return error instanceof Error && (error.name === "TimeoutError" || /timeout|timed out/i.test(error.message));
+    return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError" || /timeout|timed out/i.test(error.message));
 }

@@ -202,6 +202,12 @@ describe("text planning runtime protocol matrix", () => {
         await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("文本模型规划响应超时");
     });
 
+    it("把中止的超时信号转换为可读超时错误", async () => {
+        mockedFetch.mockRejectedValue(Object.assign(new Error("This operation was aborted"), { name: "AbortError" }));
+
+        await expect(requestStructuredText(requestInput(candidate("newapi")))).rejects.toThrow("文本模型规划响应超时");
+    });
+
     it("所有文本规划候选都使用三分钟超时", async () => {
         const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
         mockedFetch.mockResolvedValueOnce(chatJsonResponse()).mockResolvedValueOnce(chatJsonResponse());

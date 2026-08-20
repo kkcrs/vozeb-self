@@ -806,6 +806,120 @@ describe("system proxy authorization", () => {
         expect(fetchMock).not.toHaveBeenCalled();
         expect(mocks.consumeUserPoints).not.toHaveBeenCalled();
     });
+
+    it("charges MiniMax /v2/video_generation create with the same video billing as the configured path", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            generationPointMultipliers: {},
+            logicalModels: [logicalModel("minimax-video", "video", "MiniMax-H3")],
+            systemChannels: [
+                {
+                    id: "channel-one",
+                    enabled: true,
+                    baseUrl: "https://api.minimax.chat",
+                    apiKey: "secret",
+                    apiFormat: "openai",
+                    models: ["MiniMax-H3"],
+                    advancedConfig: {
+                        protocol: "custom",
+                        createPath: "/video_generation",
+                        queryPath: "/query/video_generation?task_id=",
+                        operationConfigs: {
+                            video: { capability: "video", protocol: "custom", createPath: "/video_generation", queryPath: "/query/video_generation?task_id=", requestTemplate: "{}", resultField: "task_id" },
+                        },
+                    },
+                },
+            ],
+        });
+        mocks.consumeUserPoints.mockResolvedValue({ model: "minimax-video", cost: 1, units: 1, recordId: "points-minimax", remaining: 4, permanentRemaining: 4, dailyRemaining: 0, dailyExpiresAt: "" });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ task_id: "432840347676956" }), { headers: { "content-type": "application/json" } }));
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/v2/video_generation", {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("minimax-video", "MiniMax-H3") },
+                body: JSON.stringify({ model: "MiniMax-H3", prompt: "加菲猫", duration: 1 }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["v2", "video_generation"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.minimax.chat/v2/video_generation");
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "minimax-video", expect.any(Number), "video", expect.any(String), expect.any(String));
+    });
+
+    it("does not append /v1 onto MiniMax bases that already end with /v2 when operation protocol is openai", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            generationPointMultipliers: {},
+            logicalModels: [logicalModel("minimax-video", "video", "MiniMax-H3")],
+            systemChannels: [
+                {
+                    id: "channel-one",
+                    enabled: true,
+                    baseUrl: "https://api.minimaxi.com/v2",
+                    apiKey: "secret",
+                    apiFormat: "openai",
+                    models: ["MiniMax-H3"],
+                    advancedConfig: {
+                        protocol: "custom",
+                        createPath: "/video_generation",
+                        queryPath: "/query/video_generation?task_id=",
+                        // 真实配置里 operationConfigs.video.protocol 可能是 openai，会覆盖渠道 custom；
+                        // 不得把 Base URL 拼成 /v2/v1/video_generation。
+                        operationConfigs: {
+                            video: { capability: "video", protocol: "openai", createPath: "/video_generation", queryPath: "/query/video_generation?task_id=", requestTemplate: "{}", resultField: "task_id" },
+                        },
+                    },
+                },
+            ],
+        });
+        mocks.consumeUserPoints.mockResolvedValue({ model: "minimax-video", cost: 1, units: 1, recordId: "points-minimax", remaining: 4, permanentRemaining: 4, dailyRemaining: 0, dailyExpiresAt: "" });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ task_id: "432840347676956" }), { headers: { "content-type": "application/json" } }));
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/video_generation", {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("minimax-video", "MiniMax-H3") },
+                body: JSON.stringify({ model: "MiniMax-H3", content: [{ type: "text", text: "加菲猫" }], duration: 5, ratio: "16:9", resolution: "768P" }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["video_generation"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.minimaxi.com/v2/video_generation");
+        expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("/v2/v1/");
+    });
+
+    it("charges standard OpenAI image create paths without requiring a custom createPath", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            generationPointMultipliers: {},
+            logicalModels: [logicalModel("step-image", "image", "step-image-edit-2")],
+            systemChannels: [
+                {
+                    id: "channel-one",
+                    enabled: true,
+                    baseUrl: "https://api.stepfun.com/v1",
+                    apiKey: "secret",
+                    apiFormat: "openai",
+                    models: ["step-image-edit-2"],
+                },
+            ],
+        });
+        mocks.consumeUserPoints.mockResolvedValue({ model: "step-image", cost: 1, units: 1, recordId: "points-image", remaining: 4, permanentRemaining: 4, dailyRemaining: 0, dailyExpiresAt: "" });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [{ url: "https://cdn.example.com/a.png" }] }), { headers: { "content-type": "application/json" } }));
+
+        const response = await POST(
+            new Request("http://localhost/api/ai/system/channel-one/images/generations", {
+                method: "POST",
+                headers: { "content-type": "application/json", ...systemModelHeaders("step-image", "step-image-edit-2") },
+                body: JSON.stringify({ model: "step-image-edit-2", prompt: "海报", size: "1360x768" }),
+            }),
+            { params: Promise.resolve({ channelId: "channel-one", path: ["images", "generations"] }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.stepfun.com/v1/images/generations");
+        expect(mocks.consumeUserPoints).toHaveBeenCalledWith("user-one", "step-image", expect.any(Number), "image", expect.any(String), expect.any(String));
+    });
 });
 
 function request(url = "https://cdn.example.com/media.png", headers?: HeadersInit) {

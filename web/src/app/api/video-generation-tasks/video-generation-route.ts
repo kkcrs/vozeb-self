@@ -353,7 +353,7 @@ export async function createUpstream(
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const configuredCreatePaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
-    const createPaths = isMiniMaxH3VideoModel(channel.model) ? minimaxVideoCreatePaths(configuredCreatePaths) : configuredCreatePaths;
+    const createPaths = isMiniMaxH3VideoModel(channel.model) ? minimaxVideoCreatePaths(configuredCreatePaths, channel.baseUrl) : configuredCreatePaths;
     for (const path of createPaths) {
         const response = await proxyFetch(origin, channel.baseUrl, path, cookie, {
             method: "POST",

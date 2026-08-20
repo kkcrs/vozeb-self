@@ -48,15 +48,20 @@ export function isMiniMaxH3VideoModel(model: string) {
     return normalized === "minimax-h3" || /^minimax-h3\b/.test(normalized);
 }
 
-export function minimaxVideoCreatePaths(configured: string[]) {
+export function minimaxVideoCreatePaths(configured: string[], baseUrl = "") {
     const official = "/v2/video_generation";
-    if (configured.some((path) => /\/v2\/video_generation\/?$/i.test(path.replace(/\?.*$/, "")))) return configured;
-    return [...configured.filter(Boolean), official];
+    const paths = configured.map((path) => path.trim()).filter(Boolean);
+    if (paths.some((path) => /\/v2\/video_generation\/?$/i.test(path.replace(/\?.*$/, "")))) return paths;
+    // Base 已是 /v2 时，配置的 /video_generation 就是官方地址，再追加 /v2/video_generation 会变成 /v2/v2/...。
+    if (/\/v2\/?$/i.test(baseUrl.trim()) && paths.some((path) => /\/video_generation\/?$/i.test(path.replace(/\?.*$/, "")))) return paths;
+    return [...paths, official];
 }
 
 export function minimaxVideoQueryPath(createPath: string, configured?: string) {
-    if (/\/v2\//i.test(createPath)) return "/v2/query/video_generation?task_id=";
-    return configured?.trim() || "/query/video_generation?task_id=";
+    if (/\/v2\//i.test(createPath)) return "/v2/query/video_generation?task_id=:task_id";
+    const configuredPath = configured?.trim();
+    if (configuredPath) return /[?&](?:task_id|taskId|id)=$/i.test(configuredPath) ? `${configuredPath}:task_id` : configuredPath;
+    return "/query/video_generation?task_id=:task_id";
 }
 
 export function resolveUpstreamVideoResolution(model: string, value: unknown, _options?: { requestTemplate?: string; createPath?: string }) {

@@ -15,8 +15,8 @@ export function providerCreatePaths(config: SystemChannelAdvancedConfig | undefi
 }
 
 export function resolvedProviderCreatePaths(config: SystemChannelAdvancedConfig | undefined, capability: LogicalModelCapability, fallbacks: string[]) {
-    const configured = config?.createPath?.trim();
-    if (configured) return providerCreatePaths(config, fallbacks);
+    const configured = config?.createPath?.trim() || config?.operationConfigs?.[capability]?.createPath?.trim();
+    if (configured) return uniquePaths([configured]);
     const protocol = config?.protocol || "auto";
     const definition = channelProtocolDefinition(protocol);
     const presetPath = definition.strict ? protocolModelConfig(protocol, capability)?.createPath : undefined;
@@ -134,6 +134,7 @@ export function providerTaskPath(path: string, taskId: string) {
     const encoded = encodeURIComponent(taskId);
     const rendered = path.replace(/\{\{\s*(?:taskId|task_id|id)\s*\}\}|\{(?:taskId|task_id|id)\}|:(?:taskId|task_id|id)\b/gi, encoded);
     if (rendered !== path) return rendered;
+    if (/[?&](?:task_id|taskId|video_id|id)=$/.test(path)) return `${path}${encoded}`;
     const separator = path.includes("?") ? "&" : path.endsWith("/") ? "" : "/";
     return `${path}${separator}${encoded}`;
 }

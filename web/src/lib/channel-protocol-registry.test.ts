@@ -246,6 +246,43 @@ describe("channel protocol registry", () => {
         expect(channelProtocolValidationErrors(configured)).toContain("测试渠道 的自定义鉴权请求头名称无效");
     });
 
+    it("accepts MiniMax-H3 custom video paths stored on the channel instead of a modelConfigs entry", () => {
+        const minimax: SystemModelChannel = {
+            ...channel,
+            name: "MiniMax H3 视频",
+            models: ["MiniMax-H3"],
+            advancedConfig: {
+                protocol: "custom",
+                createPath: "/video_generation",
+                queryPath: "/query/video_generation?task_id=",
+                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+                resultField: "items[0].content.url",
+                operationConfigs: {
+                    video: {
+                        capability: "video",
+                        protocol: "openai",
+                        createPath: "/video_generation",
+                        requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+                        resultField: "items[0].content.url",
+                    },
+                },
+            } as SystemModelChannel["advancedConfig"],
+        };
+
+        expect(channelProtocolValidationErrors(minimax)).toEqual([]);
+        expect(
+            channelProtocolValidationErrors({
+                ...minimax,
+                advancedConfig: {
+                    protocol: "custom",
+                    createPath: "/video_generation",
+                    requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+                    resultField: "items[0].content.url",
+                } as SystemModelChannel["advancedConfig"],
+            }),
+        ).toEqual([]);
+    });
+
     it("falls back to the capability operation when a model has no dedicated config", () => {
         expect(
             resolveChannelModelConfig(

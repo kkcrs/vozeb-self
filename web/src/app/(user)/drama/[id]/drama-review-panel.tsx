@@ -10,7 +10,7 @@ import { DramaStageHeader } from "./drama-editor-elements";
 import type { DramaProjectStage } from "./drama-project-sections";
 import { DramaShotDialogueEditor } from "./drama-shot-dialogue-editor";
 
-export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, onStageChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; onStageChange: (stage: DramaProjectStage) => void }) {
+export function DramaReviewPanel({ project, episode, onDesignVisuals, designing, designError = "", onStageChange }: { project: DramaProject; episode: DramaEpisode; onDesignVisuals: () => void; designing: boolean; designError?: string; onStageChange: (stage: DramaProjectStage) => void }) {
     const updateEpisode = useDramaStore((state) => state.updateEpisode);
     const updateShot = useDramaStore((state) => state.updateShot);
     const [episodeInfoOpen, setEpisodeInfoOpen] = useState(false);
@@ -38,8 +38,8 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                 step="02"
                 title="内容审核"
                 description="确认剧本事实、镜头边界、对白与叙事信息；视觉模型不会在这个阶段改写内容。"
-                status={!episode.shots.length ? "等待内容结构" : episode.reviewStatus === "visual_ready" ? "视觉方案已生成" : "待确认"}
-                tone={!episode.shots.length ? "attention" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
+                status={!episode.shots.length ? "等待内容结构" : designing ? "视觉方案生成中" : designError ? "生成失败" : episode.reviewStatus === "visual_ready" ? "视觉方案已生成" : "待确认"}
+                tone={!episode.shots.length || designError ? "attention" : designing ? "running" : episode.reviewStatus === "visual_ready" ? "ready" : "neutral"}
                 metrics={
                     episode.shots.length
                         ? [
@@ -66,6 +66,14 @@ export function DramaReviewPanel({ project, episode, onDesignVisuals, designing,
                     </Button>
                 }
             />
+            {episode.shots.length && (designing || designError) ? (
+                <div
+                    className={`mt-2.5 rounded-lg border px-3 py-2.5 text-sm ${designing ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/35 dark:text-sky-300" : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/35 dark:text-rose-300"}`}
+                    role={designError && !designing ? "alert" : "status"}
+                >
+                    {designing ? `正在为 ${episode.shots.length} 个镜头生成视觉方案，请保持此页面打开。` : designError}
+                </div>
+            ) : null}
             {episode.shots.length ? (
                 <div className="mt-2.5 space-y-2.5">
                     {episode.shots.map((shot) => {

@@ -22,7 +22,7 @@ import { normalizeYumengModelCenterBaseUrl } from "@/lib/yumeng-model-center";
 import { authorizedWorkerUserId } from "@/lib/server/maintenance-auth";
 import { authorizeGenerationMediaProxyRequest } from "@/lib/server/generation-media-access";
 import { userOwnsGenerationUpstreamTask } from "@/lib/server/generation-task-authorization";
-import { authorizeSystemAiProxyRequest } from "@/lib/server/system-ai-proxy-policy";
+import { authorizeSystemAiProxyRequest, expandSystemAiProxyCreatePaths } from "@/lib/server/system-ai-proxy-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,15 +98,31 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
     const globalPreset = resolveGlobalAiOpcPreset(channel.advancedConfig, upstreamModel) || resolveGlobalAiOpcPathPreset(channel.advancedConfig, path);
     const globalAdaptation = adaptGlobalAiOpcTextRequest(channel.advancedConfig, path, requestBody.body);
     if (globalAdaptation === "responses-unsupported") return NextResponse.json({ error: "该 GlobalAiOpc 原生文本接口不支持 Responses，已切换 Chat 兼容回退。" }, { status: 404 });
+    // 授权与计费必须共用同一套创建路径（含 MiniMax /v2 回退），禁止只放宽授权却漏掉计费分类。
+    const configuredCreatePaths = expandSystemAiProxyCreatePaths([
+        globalPreset?.createPath,
+        modelConfig?.createPath,
+        modelConfig?.editPath,
+        modelConfig?.imageToVideoPath,
+        channel.advancedConfig?.createPath,
+        channel.advancedConfig?.editPath,
+        channel.advancedConfig?.imageToVideoPath,
+        channel.advancedConfig?.operationConfigs?.image?.createPath,
+        channel.advancedConfig?.operationConfigs?.image?.editPath,
+        channel.advancedConfig?.operationConfigs?.video?.createPath,
+        channel.advancedConfig?.operationConfigs?.video?.imageToVideoPath,
+        channel.advancedConfig?.operationConfigs?.audio?.createPath,
+        channel.advancedConfig?.operationConfigs?.text?.createPath,
+    ]);
     const pointsRequest =
-        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers) ||
+        classifyPointsRequest(request.method, apiFormat, path, contentType, requestBody.pointsPayload, settings.generationPointMultipliers, upstreamModel) ||
         classifyConfiguredPointsRequest(
             request.method,
             path,
             contentType,
             requestBody.pointsPayload,
             channel.id,
-            [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
+            configuredCreatePaths,
             upstreamModel,
             settings.logicalModels,
             settings.generationPointMultipliers,
@@ -124,11 +140,21 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         pointsUsageKind: pointsRequest?.usageKind,
         upstreamTaskIdHint: readRequestTaskId(readRequestBody(contentType, requestBody.pointsPayload)),
         paths: {
-            create: [globalPreset?.createPath, modelConfig?.createPath, modelConfig?.editPath, modelConfig?.imageToVideoPath, channel.advancedConfig?.createPath, channel.advancedConfig?.editPath, channel.advancedConfig?.imageToVideoPath],
-            query: [globalPreset?.queryPath, modelConfig?.queryPath, channel.advancedConfig?.queryPath],
+            create: configuredCreatePaths,
+            query: [
+                globalPreset?.queryPath,
+                modelConfig?.queryPath,
+                channel.advancedConfig?.queryPath,
+                channel.advancedConfig?.operationConfigs?.image?.queryPath,
+                channel.advancedConfig?.operationConfigs?.video?.queryPath,
+                channel.advancedConfig?.operationConfigs?.audio?.queryPath,
+                channel.advancedConfig?.operationConfigs?.text?.queryPath,
+            ],
             cancel: [
                 { path: modelConfig?.cancelPath, method: modelConfig?.cancelMethod },
                 { path: channel.advancedConfig?.cancelPath, method: channel.advancedConfig?.cancelMethod },
+                { path: channel.advancedConfig?.operationConfigs?.video?.cancelPath, method: channel.advancedConfig?.operationConfigs?.video?.cancelMethod },
+                { path: channel.advancedConfig?.operationConfigs?.image?.cancelPath, method: channel.advancedConfig?.operationConfigs?.image?.cancelMethod },
             ],
         },
     });
@@ -196,7 +222,11 @@ async function proxySystemRequest(request: Request, context: RouteContext) {
         });
     } catch (error) {
         await refundConsumedPoints();
-        console.error("System API proxy request failed", { target, error: error instanceof Error ? error.message : error, code: error instanceof Error && "cause" in error && error.cause && typeof error.cause === "object" && "code" in error.cause ? String(error.cause.code) : "" });
+        console.error("System API proxy request failed", {
+            target,
+            error: error instanceof Error ? error.message || error.name : error,
+            code: error instanceof Error && "cause" in error && error.cause && typeof error.cause === "object" && "code" in error.cause ? String(error.cause.code) : "",
+        });
         return NextResponse.json({ error: describeOutboundConnectFailure(error) }, { status: 502, headers: responseHeaders(new Headers(), null, refundedPointsRemaining) });
     }
 
@@ -411,19 +441,35 @@ function emptyBodyDigest() {
     return digestBytes(new Uint8Array());
 }
 
-function classifyPointsRequest(method: string, apiFormat: ApiCallFormat, path: string[], contentType: string | null, body?: ArrayBuffer | Record<string, unknown>, multipliers?: GenerationPointMultipliers): PointsRequest | null {
+function classifyPointsRequest(
+    method: string,
+    apiFormat: ApiCallFormat,
+    path: string[],
+    contentType: string | null,
+    body?: ArrayBuffer | Record<string, unknown>,
+    multipliers?: GenerationPointMultipliers,
+    modelHint = "",
+): PointsRequest | null {
     if (method.toUpperCase() !== "POST") return null;
     const cleanPath = path[0] === "v1" || path[0] === "v1beta" ? path.slice(1) : path;
     const routePath = `/${cleanPath.join("/")}`.toLowerCase();
     const payload = readRequestBody(contentType, body);
-    const model = readRequestModel(payload) || readPathModel(cleanPath);
+    const model = readRequestModel(payload) || readPathModel(cleanPath) || modelHint.trim();
     if (!model) return null;
 
     if (routePath === "/images/generations" || routePath === "/images/edits") {
         return { model, amount: readRequestCount(payload) * imageQualityMultiplier(payload, multipliers), usageKind: "image" };
     }
     if (routePath === "/audio/speech") return { model, amount: 1, usageKind: "audio" };
-    if (routePath === "/videos" || routePath === "/video/generations" || routePath === "/videos/generations" || routePath === "/videos/videos" || routePath === "/contents/generations/tasks") {
+    if (
+        routePath === "/videos" ||
+        routePath === "/video/generations" ||
+        routePath === "/videos/generations" ||
+        routePath === "/videos/videos" ||
+        routePath === "/contents/generations/tasks" ||
+        routePath === "/video_generation" ||
+        routePath === "/v2/video_generation"
+    ) {
         return { model, amount: videoParameterMultiplier(payload, multipliers), usageKind: "video" };
     }
     if (apiFormat === "gemini" && /^\/models\/[^/]+:predictlongrunning$/i.test(routePath)) {
@@ -595,6 +641,11 @@ function targetUrl(baseUrl: string, apiFormat: "openai" | "gemini", path: string
         const origin = new URL(resolvedBaseUrl).origin;
         return `${origin}/${cleanPath.map((segment) => encodeTargetPathSegment(segment, apiFormat)).join("/")}${search}`;
     }
+    // MiniMax V2 等以 /v2 开头的官方路径必须挂在主机根上，不能叠在 /v1 后面变成 /v1/v2/...。
+    if (cleanPath[0]?.toLowerCase() === "v2") {
+        const origin = new URL(resolvedBaseUrl).origin;
+        return `${origin}/${cleanPath.map((segment) => encodeTargetPathSegment(segment, apiFormat)).join("/")}${search}`;
+    }
     if (usesLiteralPath) return literalTargetUrl(resolvedBaseUrl, cleanPath, search, apiFormat);
     return `${normalizeApiBaseUrl(resolvedBaseUrl, apiFormat, globalAiOpc)}/${cleanPath.map((segment) => encodeTargetPathSegment(segment, apiFormat)).join("/")}${search}`;
 }
@@ -629,7 +680,8 @@ function safeDecodeURIComponent(value: string) {
 function normalizeApiBaseUrl(baseUrl: string, apiFormat: "openai" | "gemini", globalAiOpc = false) {
     const normalized = baseUrl.trim().replace(/\/+$/, "");
     const lower = normalized.toLowerCase();
-    if (lower.endsWith("/v1") || lower.endsWith("/v1beta") || lower.endsWith("/api/v3") || lower.endsWith("/api/plan/v3")) return normalized;
+    // /v2 已是版本根（如 MiniMax https://api.minimaxi.com/v2），禁止再拼 /v1 变成 /v2/v1/... 导致上游 404。
+    if (lower.endsWith("/v1") || lower.endsWith("/v2") || lower.endsWith("/v1beta") || lower.endsWith("/api/v3") || lower.endsWith("/api/plan/v3")) return normalized;
     if (apiFormat === "gemini" && !globalAiOpc) return `${normalized}/v1beta`;
     return `${normalized}/v1`;
 }

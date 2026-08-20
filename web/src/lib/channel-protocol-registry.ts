@@ -429,13 +429,16 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
     if (advanced.authMode === "custom-header" && !isSafeAuthHeaderName(advanced.authHeader)) errors.push(`${channel.name || "渠道"} 的自定义鉴权请求头名称无效`);
     for (const model of channel.models) {
         const key = normalizeModelId(model);
+        const modelConfig = advanced.modelConfigs?.[key];
         const config = resolveChannelModelConfig(advanced, model);
-        const protocol = config?.protocol || advanced.protocol;
+        const protocol = modelConfig?.protocol || advanced.protocol;
         const definition = channelProtocolDefinition(protocol);
         if (protocol === "custom") {
-            if (!config?.createPath) errors.push(`${model} 的自定义协议缺少创建路径`);
-            if (!config?.requestTemplate) errors.push(`${model} 的自定义协议缺少请求模板`);
-            if (!config?.resultField && config?.capability !== "audio") errors.push(`${model} 的自定义协议缺少结果字段`);
+            const merged = resolveChannelModelAdvancedConfig(advanced, model);
+            const capability = config?.capability || advanced.modelCapabilities?.[key] || inferModelCapability(model);
+            if (!merged?.createPath) errors.push(`${model} 的自定义协议缺少创建路径`);
+            if (!merged?.requestTemplate) errors.push(`${model} 的自定义协议缺少请求模板`);
+            if (!merged?.resultField && capability !== "audio") errors.push(`${model} 的自定义协议缺少结果字段`);
             continue;
         }
         if (!definition.strict) continue;

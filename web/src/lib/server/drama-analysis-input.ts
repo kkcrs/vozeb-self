@@ -17,6 +17,35 @@ export function dramaAnalysisText(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
 }
 
+/** 每个视觉请求覆盖的镜头数。现有文本超时是 3 分钟，16 镜一次请求会被上游中止，必须分批覆盖全部镜头。 */
+export const DRAMA_VISUAL_SHOT_WINDOW = 4;
+
+export function dramaVisualShotWindows<T>(shots: readonly T[]): T[][] {
+    if (!shots.length) return [];
+    const size = Math.min(DRAMA_VISUAL_SHOT_WINDOW, shots.length);
+    const windows: T[][] = [];
+    for (let index = 0; index < shots.length; index += size) windows.push(shots.slice(index, index + size));
+    return windows;
+}
+
+export function buildDramaVisualWindowInput<T extends { id: string }>(
+    payload: { project: unknown; episode: unknown; assets: unknown; shots: T[] },
+    windowShots: T[],
+    previousVisuals: Array<{ shotId: string; cameraMotion: string; continuity: unknown }>,
+) {
+    return {
+        project: payload.project,
+        episode: payload.episode,
+        assets: payload.assets,
+        shots: windowShots,
+        previousVisuals,
+    };
+}
+
+export function compactDramaVisualContinuity(shots: Array<{ shotId: string; cameraMotion: string; continuity: unknown }>) {
+    return shots.map((shot) => ({ shotId: shot.shotId, cameraMotion: shot.cameraMotion, continuity: shot.continuity }));
+}
+
 export function normalizeDramaVisualInput(body: DramaAnalyzeBody) {
     const shots = array(body.shots).flatMap((value) => {
         const shot = object(value);
@@ -44,7 +73,7 @@ export function normalizeDramaVisualInput(body: DramaAnalyzeBody) {
         shotIds: shots.map((shot) => shot.id),
         payload: {
             project: { summary: dramaAnalysisText(body.summary), style: dramaAnalysisText(body.style) },
-            episode: object(body.episode),
+            episode: compactVisualEpisode(body.episode),
             assets: {
                 characters: normalizeVisualAssets(body.characters),
                 scenes: normalizeVisualAssets(body.scenes),
@@ -53,6 +82,18 @@ export function normalizeDramaVisualInput(body: DramaAnalyzeBody) {
             },
             shots,
         },
+    };
+}
+
+function compactVisualEpisode(value: unknown) {
+    const episode = object(value);
+    return {
+        id: dramaAnalysisText(episode.id),
+        title: dramaAnalysisText(episode.title),
+        outline: dramaAnalysisText(episode.outline),
+        hook: dramaAnalysisText(episode.hook),
+        nextPreview: dramaAnalysisText(episode.nextPreview),
+        sourceRange: dramaAnalysisText(episode.sourceRange),
     };
 }
 

@@ -56,6 +56,55 @@ describe("admin settings model routing", () => {
         expect(mocks.setAuthSettings).toHaveBeenCalledWith(expect.objectContaining({ systemChannels: [], logicalModels: [], defaultModels: { textModel: "", imageModel: "", videoModel: "", audioModel: "" } }));
     });
 
+    it("can delete an unrelated channel while a MiniMax-H3 custom video channel remains", async () => {
+        const imageChannel = savedSettings.systemChannels[0];
+        const minimaxChannel = {
+            id: "minimax-h3-video",
+            name: "MiniMax H3 视频",
+            baseUrl: "https://api.minimaxi.com/v2",
+            apiKey: "minimax-secret",
+            apiFormat: "openai" as const,
+            models: ["MiniMax-H3"],
+            enabled: true,
+            advancedConfig: {
+                protocol: "custom" as const,
+                createPath: "/video_generation",
+                queryPath: "/query/video_generation?task_id=",
+                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+                resultField: "items[0].content.url",
+                operationConfigs: {
+                    video: {
+                        capability: "video" as const,
+                        protocol: "openai" as const,
+                        createPath: "/video_generation",
+                        requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+                        resultField: "items[0].content.url",
+                    },
+                },
+            },
+        };
+        mocks.getFreshAuthSettings.mockResolvedValue({
+            ...savedSettings,
+            systemChannels: [imageChannel, minimaxChannel],
+            logicalModels: [
+                ...savedSettings.logicalModels,
+                { id: "MiniMax-H3", name: "MiniMax-H3", capability: "video", enabled: true, bindings: [{ id: "minimax", channelId: minimaxChannel.id, upstreamModel: "MiniMax-H3", enabled: true, priority: 1 }] },
+            ],
+            defaultModels: { ...savedSettings.defaultModels, videoModel: "MiniMax-H3" },
+        });
+
+        const response = await PATCH(
+            request({
+                systemChannels: [{ ...minimaxChannel, apiKey: "", hasApiKey: true }],
+                logicalModels: [{ id: "MiniMax-H3", name: "MiniMax-H3", capability: "video", enabled: true, bindings: [{ id: "minimax", channelId: minimaxChannel.id, upstreamModel: "MiniMax-H3", enabled: true, priority: 1 }] }],
+                defaultModels: { textModel: "", imageModel: "", videoModel: "MiniMax-H3", audioModel: "" },
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(mocks.setAuthSettings).toHaveBeenCalledWith(expect.objectContaining({ systemChannels: [expect.objectContaining({ id: "minimax-h3-video", apiKey: "minimax-secret" })] }));
+    });
+
     it("rebuilds an explicitly empty logical model catalog from channels", async () => {
         const response = await PATCH(request({ logicalModels: [], defaultModels: { ...savedSettings.defaultModels, textModel: "" } }));
 

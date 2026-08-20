@@ -77,6 +77,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     const [selectedShotId, setSelectedShotId] = useState<string>();
     const [analyzing, setAnalyzing] = useState(false);
     const [designing, setDesigning] = useState(false);
+    const [visualError, setVisualError] = useState("");
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [versions, setVersions] = useState<DramaProjectVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
@@ -122,7 +123,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
     };
     const designVisuals = async () => {
         if (!episode.shots.length) return message.warning("请先完成内容解析");
-        updateEpisode(project.id, episode.id, { reviewStatus: "approved" });
+        setVisualError("");
         setDesigning(true);
         try {
             const response = await fetch("/api/drama/analyze", {
@@ -133,12 +134,15 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
             syncUserPointsFromHeaders(response.headers, "system");
             const payload = (await response.json().catch(() => ({}))) as { data?: DramaVisualAnalysis; msg?: string };
             if (!response.ok || !payload.data) throw new Error(payload.msg || "AI 视觉方案生成失败");
-            await createVersion(project, "视觉方案生成前");
+            const latest = useDramaStore.getState().projects.find((item) => item.id === project.id) || project;
+            await createVersion(latest, "视觉方案生成前").catch(() => undefined);
             applyVisualAnalysis(project.id, episode.id, payload.data);
             setStage("storyboard");
             message.success("已按审核内容生成视觉方案");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "AI 视觉方案生成失败");
+            const text = error instanceof Error ? error.message : "AI 视觉方案生成失败";
+            setVisualError(text);
+            message.error(text);
         } finally {
             setDesigning(false);
         }
@@ -387,7 +391,7 @@ function DramaProjectEditor({ project }: { project: DramaProject }) {
                                 <DramaScriptPanel project={project} episode={episode} analyzing={analyzing} onAnalyze={() => void analyzeScript()} onStageChange={changeStage} selectedShotId={selectedShotId} onSelectedShotChange={setSelectedShotId} />
                             ) : null}
 
-                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} /> : null}
+                            {!assetsOpen && stage === "review" ? <DramaReviewPanel project={project} episode={episode} designing={designing} designError={visualError} onDesignVisuals={() => void designVisuals()} onStageChange={changeStage} /> : null}
 
                             {!assetsOpen && stage === "storyboard" ? (
                                 <div>
