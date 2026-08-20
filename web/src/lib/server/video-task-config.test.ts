@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveVideoGenerationParameters, withVideoReferenceFidelity } from "./video-task-config";
+import { normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
 
 describe("resolveVideoGenerationParameters", () => {
     const defaults = { imageSize: "9:16", videoQuality: "1080", videoSeconds: 10 };
@@ -68,5 +68,17 @@ describe("resolveVideoGenerationParameters", () => {
         expect(withVideoReferenceFidelity("生成海边日落", [])).toBe("生成海边日落");
         const once = withVideoReferenceFidelity("让镜头缓慢推进", [{ type: "video", url: "https://cdn.example.com/reference.mp4" }]);
         expect(withVideoReferenceFidelity(once, [{ type: "video", url: "https://cdn.example.com/reference.mp4" }])).toBe(once);
+    });
+});
+
+describe("resolveUpstreamVideoResolution", () => {
+    it("maps MiniMax-H3 qualities to provider-supported resolutions", () => {
+        expect(resolveUpstreamVideoResolution("MiniMax-H3", "2k")).toBe("2K (2013)");
+        expect(resolveUpstreamVideoResolution("MiniMax-H3", "720")).toBe("768P");
+    });
+
+    it("keeps common resolutions for other models", () => {
+        expect(resolveUpstreamVideoResolution("seedance-2.5", "720")).toBe("720p");
+        expect(resolveUpstreamVideoResolution("seedance-2.5", "2k")).toBe("2160p");
     });
 });

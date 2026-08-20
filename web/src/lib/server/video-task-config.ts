@@ -43,6 +43,30 @@ export function resolveVideoDuration(value: unknown, fallback: number) {
     return Math.max(1, Math.floor(seconds));
 }
 
+export function resolveUpstreamVideoResolution(model: string, value: unknown) {
+    const raw = text(value);
+    const normalized = raw.toLowerCase().replace(/p$/i, "");
+    if (normalizeVideoModelId(model) === "minimax-h3") {
+        if (/^(2k|2160|4k|2013)$/.test(normalized) || /\b2\s*k\b/.test(raw.toLowerCase())) return "2K (2013)";
+        return "768P";
+    }
+    if (normalized === "480") return "480p";
+    if (normalized === "768") return "768P";
+    if (normalized === "1080") return "1080p";
+    if (normalized === "720") return "720p";
+    if (/^(2k|2160)$/.test(normalized)) return "2160p";
+    if (normalized === "4k") return "2160p";
+    if (raw) return /p$/i.test(raw) ? raw : `${normalized}p`;
+    return "720p";
+}
+
+export function videoResolutionEdge(model: string, value: unknown) {
+    const resolution = resolveUpstreamVideoResolution(model, value);
+    if (/2\s*k/i.test(resolution)) return 1440;
+    const match = resolution.match(/(\d{3,4})/);
+    return match ? Number(match[1]) : 720;
+}
+
 export function withVideoReferenceFidelity(prompt: string, references: readonly VideoGenerationReference[]) {
     const source = prompt.trim();
     const hasFirstFrame = references.some((reference) => reference.role === "first_frame");
@@ -62,6 +86,10 @@ export function withVideoReferenceFidelity(prompt: string, references: readonly 
 
 function text(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeVideoModelId(model: string) {
+    return model.trim().toLowerCase();
 }
 
 function parseDurationBounds(value: string) {

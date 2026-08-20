@@ -11,7 +11,7 @@ import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
-import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveVideoDuration, resolveVideoGenerationParameters, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
+import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveVideoDuration, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
 import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 import { parseImageDimensions } from "@/lib/image-size";
 import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
@@ -229,7 +229,7 @@ export async function createUpstream(
     const requestImages = images;
     const firstFrameUrl = firstFrame?.url || "";
     const lastFrameUrl = lastFrame?.url || "";
-    const dimensions = videoDimensions(raw.size, raw.vquality);
+    const dimensions = videoDimensions(raw.size, raw.vquality, channel.model);
     const generateAudio = raw.videoGenerateAudio !== false && raw.videoGenerateAudio !== "false";
     if (isGeminiVideoChannel(channel)) {
         return createGeminiVideoUpstream({ userId, origin, cookie, channel, prompt, raw, references, generateAudio, multipliers, billingRequestId });
@@ -244,8 +244,8 @@ export async function createUpstream(
         ratio: ratio(raw.size),
         aspect_ratio: ratio(raw.size),
         size: sizeValue(raw.size),
-        resolution: resolution(raw.vquality),
-        quality: resolution(raw.vquality),
+        resolution: resolveUpstreamVideoResolution(channel.model, raw.vquality),
+        quality: resolveUpstreamVideoResolution(channel.model, raw.vquality),
         width: dimensions.width,
         height: dimensions.height,
         generate_audio: generateAudio,
@@ -492,15 +492,11 @@ function duration(value: unknown) {
 function ratio(value: unknown) {
     return normalizeVideoAspectRatio(value);
 }
-function resolution(value: unknown) {
-    const text = clean(value).replace(/p$/i, "");
-    return text === "480" || text === "1080" ? `${text}p` : "720p";
-}
-function videoDimensions(size: unknown, quality: unknown) {
+function videoDimensions(size: unknown, quality: unknown, model: string) {
     const exact = parseImageDimensions(String(size || ""));
     if (exact) return exact;
     const [x, y] = ratio(size).split(":").map(Number);
-    const edge = Number(resolution(quality).replace("p", "")) || 720;
+    const edge = videoResolutionEdge(model, quality);
     if (!x || !y) return { width: 1280, height: 720 };
     return x >= y ? { width: Math.round((edge * x) / y), height: edge } : { width: edge, height: Math.round((edge * y) / x) };
 }
