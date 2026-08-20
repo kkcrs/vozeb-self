@@ -7,10 +7,12 @@ import { maintenanceWorkerContext } from "@/lib/server/maintenance-auth";
 import {
     allowsImageProtocolFallback,
     ImageQueryContractError,
+    countUpstreamPromptWords,
     imageRequestAspectRatio,
     imageTaskPollAttempts,
     imageTaskPollUrls,
     imageTaskRequestTimeoutMs,
+    limitUpstreamPromptWords,
     openAiImageTaskPath,
     parseImagePayloadOrPoll,
     parseImagePayloadCompat,
@@ -21,6 +23,8 @@ import {
     shouldFallbackToJsonImageEdit,
     shouldRetryJsonImageEditPayload,
     taskHeaders,
+    UPSTREAM_PROMPT_MAX_WORDS,
+    withSystemPrompt,
 } from "./image-task-support";
 
 const config = {
@@ -70,6 +74,17 @@ describe("GlobalAiOpc image task paths", () => {
         expect(resolveResultSize("high", "16:9")).toBe(resolveRequestSize("high", "16:9"));
         expect(resolveResultSize(undefined, "400x600")).toBe("400x600");
         expect(resolveResultSize(undefined, "auto")).toBeUndefined();
+    });
+
+    it("maps standard ratios to the fixed size tiers supported by common image models", () => {
+        expect(resolveRequestSize(undefined, "1:1")).toBe("1024x1024");
+        expect(resolveRequestSize(undefined, "9:16")).toBe("768x1360");
+        expect(resolveRequestSize(undefined, "16:9")).toBe("1360x768");
+        expect(resolveRequestSize(undefined, "3:4")).toBe("896x1184");
+        expect(resolveRequestSize(undefined, "4:3")).toBe("1184x896");
+        // 非标准比例与显式画质仍保留原有像素推导。
+        expect(resolveRequestSize(undefined, "3:2")).toBe("1536x1024");
+        expect(resolveRequestSize("medium", "9:16")).toBe("1536x2720");
     });
 
     it("uses the model binding timeout for synchronous requests and asynchronous polling", () => {
@@ -242,5 +257,52 @@ describe("GlobalAiOpc image task paths", () => {
 
         expect(shouldFallbackToJsonImageEdit(422, message)).toBe(true);
         expect(shouldRetryJsonImageEditPayload(422, message)).toBe(true);
+    });
+});
+
+describe("upstream prompt word limit", () => {
+    it("counts CJK chars and Latin/digit words with the upstream rule", () => {
+        expect(countUpstreamPromptWords("")).toBe(0);
+        expect(countUpstreamPromptWords("简单中文 prompt 123")).toBe(4 + 2);
+        expect(countUpstreamPromptWords("hello world foo")).toBe(3);
+        expect(countUpstreamPromptWords("中文，带标点。")).toBe(7);
+    });
+
+    it("keeps prompts within the limit by dropping leading context lines", () => {
+        const long = ["背景一：很长的设定", "背景二：另一个设定", "核心指令：真正要生成的内容"].join("\n");
+        const limited = limitUpstreamPromptWords(long, 6);
+
+        expect(countUpstreamPromptWords(limited)).toBeLessThanOrEqual(6);
+        expect(limited).toContain("核心指令");
+        expect(limited).not.toContain("背景一");
+    });
+
+    it("truncates a single over-long line to the word budget", () => {
+        const single = "核心".repeat(200) + "结尾标记";
+        const limited = limitUpstreamPromptWords(single, 50);
+
+        expect(countUpstreamPromptWords(limited)).toBeLessThanOrEqual(50);
+        expect(limited).not.toContain("结尾标记");
+    });
+
+    it("leaves short prompts untouched", () => {
+        const prompt = "简短的中文提示词 prompt";
+        expect(limitUpstreamPromptWords(prompt)).toBe(prompt);
+    });
+
+    it("withSystemPrompt preserves system instructions and compresses the user prompt budget", () => {
+        const config = { systemPrompt: "你是图片生成助手，必须保持主体一致。" } as never;
+        const longPrompt = "设定A：内容\n".repeat(600) + "视觉方案：最终画面";
+        const combined = withSystemPrompt(config, longPrompt);
+
+        expect(countUpstreamPromptWords(combined)).toBeLessThanOrEqual(UPSTREAM_PROMPT_MAX_WORDS);
+        expect(combined).toContain("你是图片生成助手");
+    });
+
+    it("withSystemPrompt without system prompt still enforces the hard limit", () => {
+        const longPrompt = "内容".repeat(900);
+        const combined = withSystemPrompt({ systemPrompt: "" } as never, longPrompt);
+
+        expect(countUpstreamPromptWords(combined)).toBeLessThanOrEqual(UPSTREAM_PROMPT_MAX_WORDS);
     });
 });

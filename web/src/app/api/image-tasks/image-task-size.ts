@@ -43,6 +43,13 @@ export function imageRequestAspectRatio(size: string) {
 
 export function resolveSize(quality: string | undefined, ratio: string): string {
     const parsedRatio = parseImageRatio(ratio);
+    // 上游常见图片模型只接受固定档位：1024x1024 / 768x1360 / 896x1184 / 1360x768 / 1184x896。
+    // 标准比例在未指定画质（auto/空）时直接映射到固定档位，避免 9:16 被推导成 1024x1824 之类模型不支持的尺寸；
+    // 用户显式选择画质或非标准比例时保留原有像素推导。
+    if (!quality) {
+        const fixed = fixedImageSizeForRatio(parsedRatio.width, parsedRatio.height);
+        if (fixed) return fixed;
+    }
     const basePixels = quality ? QUALITY_BASE[quality] : undefined;
     const isLandscape = parsedRatio.width >= parsedRatio.height;
     const longRatio = isLandscape ? parsedRatio.width / parsedRatio.height : parsedRatio.height / parsedRatio.width;
@@ -61,6 +68,23 @@ export function resolveSize(quality: string | undefined, ratio: string): string 
     const height = isLandscape ? shortSide : longSide;
     validateImageSize(width, height);
     return `${width}x${height}`;
+}
+
+// 模型公开支持的固定尺寸档位（来自上游校验错误消息），标准比例按方向映射。
+function fixedImageSizeForRatio(width: number, height: number): string | undefined {
+    const ratio = width / height;
+    const candidates = [
+        [1, "1024x1024"],
+        [9 / 16, "768x1360"],
+        [3 / 4, "896x1184"],
+        [16 / 9, "1360x768"],
+        [4 / 3, "1184x896"],
+    ] as const;
+    const tolerance = 0.02;
+    for (const [target, size] of candidates) {
+        if (Math.abs(Math.log(ratio / target)) < tolerance) return size;
+    }
+    return undefined;
 }
 
 export function parseImageRatio(value: string) {

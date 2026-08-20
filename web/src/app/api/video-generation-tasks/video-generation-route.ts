@@ -12,6 +12,7 @@ import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask }
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
 import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveVideoDuration, resolveVideoGenerationParameters, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
+import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 import { parseImageDimensions } from "@/lib/image-size";
 import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
 import { assertCapabilityConstraints } from "@/lib/server/capability-constraints";
@@ -233,9 +234,11 @@ export async function createUpstream(
     if (isGeminiVideoChannel(channel)) {
         return createGeminiVideoUpstream({ userId, origin, cookie, channel, prompt, raw, references, generateAudio, multipliers, billingRequestId });
     }
+    // 发送前按上游词数限制兜底压缩，避免超长编译 prompt 被上游拒绝；持久化任务仍保留原始 prompt。
+    const sendPrompt = limitUpstreamPromptWords(prompt);
     const values = {
         model: channel.model,
-        prompt,
+        prompt: sendPrompt,
         duration: duration(raw.videoSeconds),
         seconds: duration(raw.videoSeconds),
         ratio: ratio(raw.size),
@@ -253,7 +256,7 @@ export async function createUpstream(
         video: videos[0] || "",
         audio: audios[0] || "",
         references,
-        content: videoReferenceContent(prompt, references),
+        content: videoReferenceContent(sendPrompt, references),
         first_frame: firstFrameUrl,
         first_frame_url: firstFrameUrl,
         last_frame: lastFrameUrl,
@@ -261,7 +264,7 @@ export async function createUpstream(
     };
     const defaults = {
         model: channel.model,
-        prompt,
+        prompt: sendPrompt,
         duration: values.duration,
         seconds: values.seconds,
         ratio: values.ratio,
@@ -285,7 +288,7 @@ export async function createUpstream(
         : channel.advancedConfig?.protocol === "vozeb-recommended"
           ? buildVozebRecommendedVideoRequest({
                 model: channel.model,
-                prompt,
+                prompt: sendPrompt,
                 duration: values.duration as number,
                 aspectRatio: values.aspect_ratio as string,
                 resolution: values.resolution as string,
@@ -297,7 +300,7 @@ export async function createUpstream(
           : channel.advancedConfig?.protocol === "seedance-special"
             ? buildSeedanceSpecialRequest({
                   model: channel.model,
-                  prompt,
+                  prompt: sendPrompt,
                   duration: values.duration === -1 ? 5 : (values.duration as number),
                   ratio: values.ratio as string,
                   generateAudio,
@@ -306,7 +309,7 @@ export async function createUpstream(
             : channel.advancedConfig?.protocol === "yumeng"
               ? buildYumengVideoRequest({
                     model: channel.model,
-                    prompt,
+                    prompt: sendPrompt,
                     duration: values.duration as number,
                     aspectRatio: values.aspect_ratio as string,
                     resolution: values.resolution as string,
@@ -321,7 +324,7 @@ export async function createUpstream(
               : globalPreset
                 ? buildGlobalAiOpcVideoRequest(globalPreset, {
                       model: channel.model,
-                      prompt,
+                      prompt: sendPrompt,
                       duration: values.duration as number,
                       ratio: values.ratio as string,
                       resolution: values.resolution as string,
@@ -334,7 +337,7 @@ export async function createUpstream(
                   })
                 : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
-        ? await buildOpenAiVideoFormData({ model: channel.model, prompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
+        ? await buildOpenAiVideoFormData({ model: channel.model, prompt: sendPrompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
         : JSON.stringify(payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);

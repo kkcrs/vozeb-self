@@ -36,6 +36,21 @@ describe("drama prompt compiler", () => {
         expect(assetPrompt.length).toBeGreaterThan(8000);
         expect(assetPrompt).toContain("最终识别标记");
     });
+
+    it("keeps shot prompts compact by dropping redundant asset profile fields", () => {
+        const project = createProject();
+        const prompts = compileDramaShotPrompts(project, project.episodes[0], project.episodes[0].shots[0]);
+
+        // 分镜/视频执行提示词只保留资产核心描述与视觉识别，不携带 styling/colorPalette/consistencyRules 冗余字段。
+        expect(prompts.imagePrompt).toContain("女主：红色外套");
+        expect(prompts.imagePrompt).toContain("视觉识别 短发");
+        expect(prompts.imagePrompt).not.toContain("固定规则 发型不变");
+        expect(prompts.videoPrompt).not.toContain("色彩 红黑");
+        // 资产设定图编译仍保留完整 profile。
+        const assetPrompt = compileDramaAssetReferencePrompt(project, project.characters[0], "角色");
+        expect(assetPrompt).toContain("固定色彩：红黑");
+        expect(assetPrompt).toContain("一致性规则：发型不变");
+    });
 });
 
 function createProject(): DramaProject {

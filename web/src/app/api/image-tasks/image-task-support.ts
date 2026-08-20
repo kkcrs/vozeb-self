@@ -307,9 +307,17 @@ export function geminiApiUrl(config: ImageTaskConfig, action: "generateContent",
     return `${baseUrl}/models/${encodeURIComponent(config.model.replace(/^models\//, ""))}:${action}`;
 }
 
+export { UPSTREAM_PROMPT_MAX_WORDS, countUpstreamPromptWords, limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
+import { countUpstreamPromptWords, limitUpstreamPromptWords, UPSTREAM_PROMPT_MAX_WORDS } from "@/lib/server/upstream-prompt-limit";
+
 export function withSystemPrompt(config: ImageTaskConfig, prompt: string) {
     const systemPrompt = (config.systemPrompt || "").trim();
-    return systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+    if (!systemPrompt) return limitUpstreamPromptWords(prompt);
+    // 系统提示词完整保留，用户 prompt 压缩到剩余预算；系统提示词本身超限时退化为整体截断。
+    const budget = Math.max(0, UPSTREAM_PROMPT_MAX_WORDS - countUpstreamPromptWords(systemPrompt));
+    const limited = budget > 0 ? limitUpstreamPromptWords(prompt, budget) : "";
+    const combined = `${systemPrompt}\n\n${limited}`.trim();
+    return countUpstreamPromptWords(combined) > UPSTREAM_PROMPT_MAX_WORDS ? limitUpstreamPromptWords(combined) : combined;
 }
 
 export async function parseImagePayloadOrPoll(config: ImageTaskConfig, payload: ImageApiResponse, mediaBaseUrl: string, cookie: string, pollBaseUrl = mediaBaseUrl, singleStep = false): Promise<ImageTaskResult> {

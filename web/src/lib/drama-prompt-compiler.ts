@@ -62,10 +62,7 @@ export function compileDramaAssetReferencePrompt(project: DramaProject, asset: D
 function assetText(asset: DramaNamedAsset) {
     return compact([
         `${asset.name}：${asset.description}`,
-        asset.profile?.visualIdentity,
-        asset.profile?.styling,
-        asset.profile?.colorPalette ? `色彩 ${asset.profile.colorPalette}` : "",
-        asset.profile?.consistencyRules ? `固定规则 ${asset.profile.consistencyRules}` : "",
+        asset.profile?.visualIdentity ? `视觉识别 ${asset.profile.visualIdentity}` : "",
     ]).join("，");
 }
 
