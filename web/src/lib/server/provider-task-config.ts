@@ -100,6 +100,16 @@ export function assertReferenceCapabilities(config: SystemChannelAdvancedConfig 
     if (unsupported) throw new Error(`当前渠道未启用${unsupported.type === "image" ? "参考图" : unsupported.type === "video" ? "参考视频" : "参考音频"}能力`);
 }
 
+/** 渠道未启用参考图时改为文生视频：丢掉图片参考，保留视频/音频参考以便后续仍按原规则校验。 */
+export function dropUnsupportedVideoImageReferences<T extends { type?: string }>(
+    config: SystemChannelAdvancedConfig | undefined,
+    references: readonly T[],
+    supportsReferenceImage = Boolean(config?.supportsReferenceImage),
+): T[] {
+    if (supportsReferenceImage || !references.some((reference) => reference.type === "image")) return [...references];
+    return references.filter((reference) => reference.type !== "image");
+}
+
 export function assertVideoReferenceRoles(config: SystemChannelAdvancedConfig | undefined, references: readonly VideoGenerationReference[], declaredRoles?: readonly VideoReferenceRole[]) {
     const requestedRoles = Array.from(new Set(references.map((reference) => reference.role).filter((role): role is "first_frame" | "last_frame" => role === "first_frame" || role === "last_frame")));
     if (!requestedRoles.length) return;

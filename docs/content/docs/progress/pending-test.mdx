@@ -5,6 +5,8 @@ description: VOZEB PRO 当前版本需要人工或真实环境确认的事项
 
 # 待测试
 
+- 短剧镜头视频：当前视频渠道未启用参考图时，应自动按文生视频提交（丢掉分镜/参考图），不再报“当前渠道未启用参考图能力”；启用参考图的渠道行为不变。专项覆盖参考图丢弃；本机 Docker 重建后，用《琵琶行》分镜驱动 + MiniMax-H3 再试一条镜头视频。
+- 短剧分镜图：编译后的图片提示词超过上游 512 词上限时会压缩并保留尾部视觉方案，不再报 `prompt is too long, prompt length between [1,512]`。专项覆盖编译压缩；本机 Docker 重建后，对原先失败的超长分镜再生成一次。
 - MiniMax Base URL `https://api.minimaxi.com/v2` + 创建路径 `/video_generation`：即使 operation 协议被标成 openai，上游也必须请求 `.../v2/video_generation`，禁止再出现 `.../v2/v1/video_generation` 的 `404 page not found`。专项覆盖该拼接回归；本机 Docker 重建后请再试 1 条加菲猫视频（时长会按官方约束落到 4–15 秒）。图片已验证通过，勿回归破坏。
 - 系统代理创建路径的授权与计费已打通：MiniMax `/v2/video_generation` 与配置的 `/video_generation` 共用扩展路径；标准 `/images/generations` 图片创建也会按 image 计费。专项覆盖代理授权/计费回归。本机 Docker 重建后请再试：1 秒 MiniMax 视频、StepFun 16:9 生图，不应再出现“路径未获授权”或“无法确定计费类型”。
 - MiniMax-H3 视频创建回退 `/v2/video_generation` 时，系统代理会同步授权该路径；渠道只在 `operationConfigs.video` 配置创建路径时也能被读取。专项覆盖代理创建/查询授权与 operationConfigs 路径解析。本机 Docker 重建后，用真实 MiniMax 渠道确认 1 秒视频创建、轮询、成片落盘；失败退款仍需核对。

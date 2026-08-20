@@ -1,4 +1,5 @@
 import type { DramaEpisode, DramaNamedAsset, DramaProject, DramaShot, DramaShotContinuity } from "@/lib/drama-project-contract";
+import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 
 export type CompiledDramaPrompts = {
     imagePrompt: string;
@@ -43,20 +44,28 @@ export function compileDramaShotPrompts(project: DramaProject, episode: DramaEpi
         shot.narration ? `画外音节奏：${shot.narration}` : "",
         "动作连续、物理合理，保持人物身份、服装、视线、轴线和运动方向稳定。",
     ]).join("\n");
-    return { imagePrompt, startFramePrompt, endFramePrompt, videoPrompt };
+    // 上游图片/视频常见 [1,512] 词数上限：编译阶段先压缩，发送层仍会再兜底。
+    return {
+        imagePrompt: limitUpstreamPromptWords(imagePrompt),
+        startFramePrompt: limitUpstreamPromptWords(startFramePrompt),
+        endFramePrompt: limitUpstreamPromptWords(endFramePrompt),
+        videoPrompt: limitUpstreamPromptWords(videoPrompt),
+    };
 }
 
 export function compileDramaAssetReferencePrompt(project: DramaProject, asset: DramaNamedAsset, kind: "角色" | "场景" | "道具") {
-    return compact([
-        `${kind}设定图，${project.ratio}，${project.style}`,
-        `名称：${asset.name}`,
-        `基础描述：${asset.description}`,
-        asset.profile?.visualIdentity ? `视觉识别：${asset.profile.visualIdentity}` : "",
-        asset.profile?.styling ? `造型与材质：${asset.profile.styling}` : "",
-        asset.profile?.colorPalette ? `固定色彩：${asset.profile.colorPalette}` : "",
-        asset.profile?.consistencyRules ? `一致性规则：${asset.profile.consistencyRules}` : "",
-        kind === "角色" ? "完整角色设定视图，五官与体型清晰，正面为主，干净中性背景，不添加文字。" : "主体结构清晰，便于后续镜头稳定引用，不添加文字。",
-    ]).join("\n");
+    return limitUpstreamPromptWords(
+        compact([
+            `${kind}设定图，${project.ratio}，${project.style}`,
+            `名称：${asset.name}`,
+            `基础描述：${asset.description}`,
+            asset.profile?.visualIdentity ? `视觉识别：${asset.profile.visualIdentity}` : "",
+            asset.profile?.styling ? `造型与材质：${asset.profile.styling}` : "",
+            asset.profile?.colorPalette ? `固定色彩：${asset.profile.colorPalette}` : "",
+            asset.profile?.consistencyRules ? `一致性规则：${asset.profile.consistencyRules}` : "",
+            kind === "角色" ? "完整角色设定视图，五官与体型清晰，正面为主，干净中性背景，不添加文字。" : "主体结构清晰，便于后续镜头稳定引用，不添加文字。",
+        ]).join("\n"),
+    );
 }
 
 function assetText(asset: DramaNamedAsset) {

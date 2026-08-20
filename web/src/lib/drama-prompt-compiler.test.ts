@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DramaEpisode, DramaProject, DramaShot } from "./drama-project-contract";
 import { compileDramaAssetReferencePrompt, compileDramaShotPrompts } from "./drama-prompt-compiler";
+import { countUpstreamPromptWords, UPSTREAM_PROMPT_MAX_WORDS } from "./server/upstream-prompt-limit";
 
 describe("drama prompt compiler", () => {
     it("compiles project assets and continuity into both media prompts", () => {
@@ -24,17 +25,19 @@ describe("drama prompt compiler", () => {
         expect(prompt).toContain("不添加文字");
     });
 
-    it("preserves long execution prompts instead of truncating the final constraints", () => {
+    it("compresses overlong shot prompts to the upstream word budget and keeps the trailing visual brief", () => {
         const project = createProject();
         project.characters[0].description = `${"角色细节".repeat(2500)}最终识别标记`;
+        project.episodes[0].shots[0].imagePrompt = "冷色天台视觉方案尾部标记";
 
         const prompts = compileDramaShotPrompts(project, project.episodes[0], project.episodes[0].shots[0]);
         const assetPrompt = compileDramaAssetReferencePrompt(project, project.characters[0], "角色");
 
-        expect(prompts.imagePrompt.length).toBeGreaterThan(8000);
-        expect(prompts.imagePrompt).toContain("最终识别标记");
-        expect(assetPrompt.length).toBeGreaterThan(8000);
-        expect(assetPrompt).toContain("最终识别标记");
+        expect(countUpstreamPromptWords(prompts.imagePrompt)).toBeLessThanOrEqual(UPSTREAM_PROMPT_MAX_WORDS);
+        expect(countUpstreamPromptWords(prompts.videoPrompt)).toBeLessThanOrEqual(UPSTREAM_PROMPT_MAX_WORDS);
+        expect(countUpstreamPromptWords(assetPrompt)).toBeLessThanOrEqual(UPSTREAM_PROMPT_MAX_WORDS);
+        expect(prompts.imagePrompt).toContain("视觉方案：冷色天台视觉方案尾部标记");
+        expect(assetPrompt).toContain("不添加文字");
     });
 
     it("keeps shot prompts compact by dropping redundant asset profile fields", () => {

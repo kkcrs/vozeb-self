@@ -539,6 +539,36 @@ describe("video generation candidate failover", () => {
         });
     });
 
+    it("falls back to text-to-video when the channel disables reference images", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            ...settings,
+            systemChannels: [
+                {
+                    ...channels[0],
+                    advancedConfig: {
+                        protocol: "custom",
+                        createPath: "/video_generation",
+                        queryPath: "/query/video_generation?task_id=",
+                        requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","images":"{{images}}"}',
+                        resultField: "id",
+                        supportsReferenceImage: false,
+                    },
+                },
+            ],
+            logicalModels: [{ ...settings.logicalModels[0], bindings: [settings.logicalModels[0].bindings[0]] }],
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "upstream-t2v", status: "queued" }));
+
+        const response = await POST(request({ model: "video", videoSeconds: "5", size: "16:9" }, [{ type: "image", url: "https://cdn.example.com/storyboard.png", role: "first_frame" }]));
+        const init = mocks.fetchInternalApi.mock.calls[0]?.[1] as RequestInit;
+        const body = JSON.parse(String(init.body));
+
+        expect(response.status).toBe(200);
+        expect(body).toMatchObject({ model: "video-one", prompt: expect.stringContaining("A test video") });
+        expect(body).not.toHaveProperty("images");
+        expect(body).not.toHaveProperty("image");
+    });
+
     it("rejects a last frame on OpenAI before creating or billing an upstream task", async () => {
         mocks.getAuthSettings.mockResolvedValue({
             ...settings,

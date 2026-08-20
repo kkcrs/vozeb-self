@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- [短剧/生成] 视频渠道未启用参考图时自动降级为文生视频，不再报“当前渠道未启用参考图能力”；分镜/资产编译与参考图说明按上游 512 词数上限压缩，避免 `prompt is too long`。
 - [生成] MiniMax 渠道 Base URL 已是 `/v2` 时，即使 operation 协议被标成 openai，也不再错误拼成 `/v2/v1/video_generation` 导致上游 `404 page not found`；以 `/v2` 开头的官方路径固定挂在主机根。
 - [生成] 系统代理对 MiniMax `/video_generation` 与 `/v2/video_generation` 的**授权与计费分类共用同一套扩展路径**，避免只放宽授权后报“无法确定计费类型”；标准 OpenAI 图片创建路径同步覆盖计费回归。
 - [生成] MiniMax 视频在旧路径失败后回退 `/v2/video_generation` 时，系统代理同步授权该创建与查询路径，避免报“系统模型代理路径未获授权”；渠道仅把创建路径写在 `operationConfigs.video` 时也会被读取。

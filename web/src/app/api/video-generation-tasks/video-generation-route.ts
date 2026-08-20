@@ -6,7 +6,7 @@ import { generationModelId, toSystemGenerationChannel } from "@/lib/server/gener
 import { finishGenerationAttempt, startGenerationAttempt, type GenerationAttempt } from "@/lib/server/generation-attempt";
 import { fetchInternalApi, resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolveLogicalModelCandidates } from "@/lib/server/logical-model-router";
-import { assertReferenceCapabilities, assertReferenceUrls, assertVideoReferenceRoles, buildVideoProviderRequest, isProviderBusinessError, readProviderError, readProviderString, resolvedProviderCreatePaths } from "@/lib/server/provider-task-config";
+import { assertReferenceCapabilities, assertReferenceUrls, assertVideoReferenceRoles, buildVideoProviderRequest, dropUnsupportedVideoImageReferences, isProviderBusinessError, readProviderError, readProviderString, resolvedProviderCreatePaths } from "@/lib/server/provider-task-config";
 import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/globalaiopc-catalog";
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
@@ -72,7 +72,6 @@ export async function POST(request: Request) {
         } catch (error) {
             return NextResponse.json({ error: error instanceof Error ? error.message : "视频参考素材不正确" }, { status: 400 });
         }
-        const providerPrompt = withVideoReferenceFidelity(prompt, references);
         const origin = resolveInternalOrigin(new URL(request.url).origin);
         const cookie = requestRuntimeCredential(request, user.id);
         const requestedParameters = resolveVideoGenerationParameters(body.config || {}, settings.generationDefaults);
@@ -84,6 +83,11 @@ export async function POST(request: Request) {
         for (let index = 0; index < channels.length; index += 1) {
             const channel = channels[index];
             const geminiVideo = isGeminiVideoChannel(channel);
+            const globalPreset = globalAiOpcVideoPreset(channel.advancedConfig, channel.model);
+            const supportsReferenceImage = globalPreset ? Boolean(globalPreset.supportsReferenceImage) : Boolean(channel.advancedConfig?.supportsReferenceImage);
+            // 渠道未启用参考图时降级为文生视频，避免短剧分镜驱动在 MiniMax 等渠道上硬失败。
+            const channelReferences = geminiVideo ? references : dropUnsupportedVideoImageReferences(channel.advancedConfig, references, supportsReferenceImage);
+            const providerPrompt = withVideoReferenceFidelity(prompt, channelReferences);
             const parameters = {
                 ...requestedParameters,
                 videoSeconds: geminiVideo
@@ -97,29 +101,28 @@ export async function POST(request: Request) {
             try {
                 assertCapabilityConstraints(channel.capabilityProfile, {
                     capability: "video",
-                    referenceCount: references.filter((reference) => reference.type === "image").length,
+                    referenceCount: channelReferences.filter((reference) => reference.type === "image").length,
                     durationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds,
                     aspectRatio: normalizeVideoAspectRatio(parameters.size),
                 });
-                const globalPreset = globalAiOpcVideoPreset(channel.advancedConfig, channel.model);
                 if (geminiVideo) {
-                    assertGeminiVideoReferences(references);
+                    assertGeminiVideoReferences(channelReferences);
                 } else {
                     assertReferenceCapabilities(
                         globalPreset
                             ? {
                                   ...channel.advancedConfig!,
-                                  supportsReferenceImage: Boolean(globalPreset.supportsReferenceImage),
+                                  supportsReferenceImage,
                                   supportsReferenceVideo: Boolean(globalPreset.supportsReferenceVideo),
                                   supportsReferenceAudio: Boolean(globalPreset.supportsReferenceAudio),
                               }
                             : channel.advancedConfig,
-                        references,
+                        channelReferences,
                     );
-                    if (channel.advancedConfig?.protocol !== "yumeng") assertVideoReferenceRoles(channel.advancedConfig, references, globalPreset?.videoReferenceRoles);
-                    if (channel.advancedConfig?.protocol === "vozeb-recommended") assertVozebRecommendedVideoReferences(channel.model, references);
-                    if (channel.advancedConfig?.protocol === "yumeng") assertYumengVideoReferences(channel.model, references);
-                    assertReferenceUrls(channel.advancedConfig, references, Boolean(globalPreset));
+                    if (channel.advancedConfig?.protocol !== "yumeng") assertVideoReferenceRoles(channel.advancedConfig, channelReferences, globalPreset?.videoReferenceRoles);
+                    if (channel.advancedConfig?.protocol === "vozeb-recommended") assertVozebRecommendedVideoReferences(channel.model, channelReferences);
+                    if (channel.advancedConfig?.protocol === "yumeng") assertYumengVideoReferences(channel.model, channelReferences);
+                    assertReferenceUrls(channel.advancedConfig, channelReferences, Boolean(globalPreset));
                 }
             } catch (error) {
                 capabilityError = error;
@@ -167,7 +170,7 @@ export async function POST(request: Request) {
                 lastUpstreamStatus: "submitting",
             });
             try {
-                const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, references, settings.generationPointMultipliers, billingRequestId);
+                const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, channelReferences, settings.generationPointMultipliers, billingRequestId);
                 await updateVideoTask(localTask.id, { config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts });
                 const task = { ...localTask, config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
                 const submittedAt = Date.now();

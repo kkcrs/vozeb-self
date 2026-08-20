@@ -6,6 +6,7 @@ import {
     assertVideoReferenceRoles,
     buildProviderRequest,
     buildVideoProviderRequest,
+    dropUnsupportedVideoImageReferences,
     isProviderBusinessError,
     providerQueryPaths,
     providerTaskPath,
@@ -115,6 +116,16 @@ describe("provider task config", () => {
         expect(() => assertReferenceCapabilities(config, [{ type: "image" }])).not.toThrow();
         expect(() => assertReferenceCapabilities(config, [{ type: "video" }])).toThrow("当前渠道未启用参考视频能力");
         expect(() => assertReferenceCapabilities(config, [{ type: "audio" }])).toThrow("当前渠道未启用参考音频能力");
+    });
+
+    it("drops image references when the channel has reference images disabled so text-to-video can proceed", () => {
+        const refs = [
+            { type: "image" as const, url: "https://cdn.example.com/frame.png", role: "first_frame" as const },
+            { type: "video" as const, url: "https://cdn.example.com/clip.mp4" },
+        ];
+        expect(dropUnsupportedVideoImageReferences({ supportsReferenceImage: false } as never, refs)).toEqual([{ type: "video", url: "https://cdn.example.com/clip.mp4" }]);
+        expect(dropUnsupportedVideoImageReferences({ supportsReferenceImage: true } as never, refs)).toEqual(refs);
+        expect(dropUnsupportedVideoImageReferences({ supportsReferenceImage: false } as never, refs, true)).toEqual(refs);
     });
 
     it("enforces protocol-specific first and last frame support before submission", () => {
