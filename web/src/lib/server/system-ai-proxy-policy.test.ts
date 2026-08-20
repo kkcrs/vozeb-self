@@ -128,7 +128,7 @@ describe("system AI proxy policy", () => {
             operation: "query",
             upstreamTaskId: "abc",
         });
-        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["query", "video_generation"], search: "?task_id=" })).toMatchObject({ allowed: false, status: 400 });
+        expect(authorizeSystemAiProxyRequest({ ...base, method: "GET", path: ["query", "video_generation"], search: "?task_id=" })).toMatchObject({ allowed: false, status: 404 });
     });
 
     it("rejects unsupported methods and mismatched logical capabilities", () => {

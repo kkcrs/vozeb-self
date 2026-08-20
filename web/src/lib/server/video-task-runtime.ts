@@ -148,22 +148,24 @@ async function queryVideoUpstream(task: VideoTask, origin: string, cookie: strin
     const preset = globalAiOpcPreset(task);
     const seedanceSpecial = task.config.advancedConfig?.protocol === "seedance-special";
     const taskId = task.upstream.id;
-    const extraQueries = [
-        task.upstream.queryPath,
-        ...(isMiniMaxH3VideoModel(task.config.model) ? [minimaxVideoQueryPath(createPath, task.config.advancedConfig?.queryPath), "/v2/query/video_generation?task_id="] : []),
-    ]
+    const extraQueries = [task.upstream.queryPath, ...(isMiniMaxH3VideoModel(task.config.model) ? [minimaxVideoQueryPath(createPath, task.config.advancedConfig?.queryPath), "/v2/query/video_generation?task_id="] : [])]
         .map((path) => path?.trim())
         .filter((path): path is string => Boolean(path))
         .map((path) => providerTaskPath(path, taskId));
     const paths = preset?.queryPath
         ? [preset.queryPath.replace(/:(?:task_id|taskId|id)\b/g, encodeURIComponent(taskId))]
-        : [...new Set([...extraQueries, ...providerQueryPaths(task.config.advancedConfig, taskId, [
-              `${createPath.replace(/\/+$/, "")}/${encodeURIComponent(taskId)}`,
-              `/videos/${encodeURIComponent(taskId)}`,
-              `/video/generations/${encodeURIComponent(taskId)}`,
-              `/videos/generations/${encodeURIComponent(taskId)}`,
-              `/result?id=${encodeURIComponent(taskId)}`,
-          ])])];
+        : [
+              ...new Set([
+                  ...extraQueries,
+                  ...providerQueryPaths(task.config.advancedConfig, taskId, [
+                      `${createPath.replace(/\/+$/, "")}/${encodeURIComponent(taskId)}`,
+                      `/videos/${encodeURIComponent(taskId)}`,
+                      `/video/generations/${encodeURIComponent(taskId)}`,
+                      `/videos/generations/${encodeURIComponent(taskId)}`,
+                      `/result?id=${encodeURIComponent(taskId)}`,
+                  ]),
+              ]),
+          ];
     let lastError = "";
     for (const path of paths) {
         const response = await fetchInternalApi(`${origin}${task.config.baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`, {
