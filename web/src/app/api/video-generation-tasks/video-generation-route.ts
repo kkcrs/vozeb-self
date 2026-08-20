@@ -11,7 +11,7 @@ import { buildGlobalAiOpcVideoRequest, resolveGlobalAiOpcPreset } from "@/lib/gl
 import { createVideoTask, transitionVideoTask, updateVideoTask, type VideoTask } from "@/lib/server/video-task-store";
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { getStoredGenerationTaskByRequest, linkStoredGenerationTask, withGenerationConcurrencyLimit, type GenerationTaskContext } from "@/lib/server/generation-task-store";
-import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveVideoDuration, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
+import { normalizeVideoAspectRatio, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoDuration, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "@/lib/server/video-task-config";
 import { limitUpstreamPromptWords } from "@/lib/server/upstream-prompt-limit";
 import { parseImageDimensions } from "@/lib/image-size";
 import { signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
@@ -231,6 +231,9 @@ export async function createUpstream(
     const lastFrameUrl = lastFrame?.url || "";
     const dimensions = videoDimensions(raw.size, raw.vquality, channel.model);
     const generateAudio = raw.videoGenerateAudio !== false && raw.videoGenerateAudio !== "false";
+    const requestTemplate = channel.advancedConfig?.requestTemplate;
+    const upstreamRatio = resolveUpstreamVideoRatio(channel.model, raw.size, Boolean(firstFrameUrl));
+    const upstreamResolution = resolveUpstreamVideoResolution(channel.model, raw.vquality, { requestTemplate, createPath: channel.advancedConfig?.createPath });
     if (isGeminiVideoChannel(channel)) {
         return createGeminiVideoUpstream({ userId, origin, cookie, channel, prompt, raw, references, generateAudio, multipliers, billingRequestId });
     }
@@ -241,11 +244,11 @@ export async function createUpstream(
         prompt: sendPrompt,
         duration: duration(raw.videoSeconds),
         seconds: duration(raw.videoSeconds),
-        ratio: ratio(raw.size),
-        aspect_ratio: ratio(raw.size),
+        ratio: upstreamRatio,
+        aspect_ratio: upstreamRatio,
         size: sizeValue(raw.size),
-        resolution: resolveUpstreamVideoResolution(channel.model, raw.vquality),
-        quality: resolveUpstreamVideoResolution(channel.model, raw.vquality),
+        resolution: upstreamResolution,
+        quality: upstreamResolution,
         width: dimensions.width,
         height: dimensions.height,
         generate_audio: generateAudio,
@@ -335,7 +338,10 @@ export async function createUpstream(
                       firstFrame: firstFrameUrl || undefined,
                       lastFrame: lastFrameUrl || undefined,
                   })
-                : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
+                : sanitizeMiniMaxVideoPayload(
+                      channel.model,
+                      buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values) as Record<string, unknown> | undefined,
+                  );
     const requestBody = multipart
         ? await buildOpenAiVideoFormData({ model: channel.model, prompt: sendPrompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
         : JSON.stringify(payload);

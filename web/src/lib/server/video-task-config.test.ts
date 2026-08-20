@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveVideoGenerationParameters, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
+import { isMiniMaxH3VideoModel, normalizeVideoAspectRatio, normalizeVideoSize, resolveUpstreamVideoDuration, resolveUpstreamVideoResolution, resolveUpstreamVideoRatio, resolveVideoGenerationParameters, sanitizeMiniMaxVideoPayload, videoResolutionEdge, withVideoReferenceFidelity } from "./video-task-config";
 
 describe("resolveVideoGenerationParameters", () => {
     const defaults = { imageSize: "9:16", videoQuality: "1080", videoSeconds: 10 };
@@ -73,12 +73,37 @@ describe("resolveVideoGenerationParameters", () => {
 
 describe("resolveUpstreamVideoResolution", () => {
     it("maps MiniMax-H3 qualities to provider-supported resolutions", () => {
-        expect(resolveUpstreamVideoResolution("MiniMax-H3", "2k")).toBe("2K (2013)");
+        expect(resolveUpstreamVideoResolution("MiniMax-H3", "2k")).toBe("2K");
         expect(resolveUpstreamVideoResolution("MiniMax-H3", "720")).toBe("768P");
+        expect(resolveUpstreamVideoResolution("models/MiniMax-H3", "2k", { createPath: "/video_generation" })).toBe("2K (2013)");
+        expect(resolveUpstreamVideoResolution("models/MiniMax-H3", "720", { createPath: "/video_generation" })).toBe("768P");
     });
 
     it("keeps common resolutions for other models", () => {
         expect(resolveUpstreamVideoResolution("seedance-2.5", "720")).toBe("720p");
         expect(resolveUpstreamVideoResolution("seedance-2.5", "2k")).toBe("2160p");
+    });
+});
+
+describe("resolveUpstreamVideoRatio", () => {
+    it("requires explicit ratio for MiniMax text-to-video", () => {
+        expect(resolveUpstreamVideoRatio("MiniMax-H3", "auto", false)).toBe("16:9");
+        expect(resolveUpstreamVideoRatio("MiniMax-H3", "9:16", false)).toBe("9:16");
+        expect(resolveUpstreamVideoRatio("MiniMax-H3", "auto", true)).toBe("adaptive");
+    });
+});
+
+describe("sanitizeMiniMaxVideoPayload", () => {
+    it("removes unsupported MiniMax fields from custom payloads", () => {
+        expect(isMiniMaxH3VideoModel("models/MiniMax-H3")).toBe(true);
+        expect(
+            sanitizeMiniMaxVideoPayload("MiniMax-H3", {
+                model: "MiniMax-H3",
+                resolution: "2K",
+                generate_audio: true,
+                watermark: false,
+                quality: "2K",
+            }),
+        ).toEqual({ model: "MiniMax-H3", resolution: "2K" });
     });
 });

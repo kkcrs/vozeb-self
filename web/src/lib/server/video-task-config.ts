@@ -43,12 +43,20 @@ export function resolveVideoDuration(value: unknown, fallback: number) {
     return Math.max(1, Math.floor(seconds));
 }
 
-export function resolveUpstreamVideoResolution(model: string, value: unknown) {
+export function isMiniMaxH3VideoModel(model: string) {
+    const normalized = normalizeVideoModelId(model);
+    return normalized === "minimax-h3" || /^minimax-h3\b/.test(normalized);
+}
+
+export function resolveUpstreamVideoResolution(model: string, value: unknown, options?: { requestTemplate?: string; createPath?: string }) {
     const raw = text(value);
     const normalized = raw.toLowerCase().replace(/p$/i, "");
-    if (normalizeVideoModelId(model) === "minimax-h3") {
-        if (/^(2k|2160|4k|2013)$/.test(normalized) || /\b2\s*k\b/.test(raw.toLowerCase())) return "2K (2013)";
-        return "768P";
+    if (isMiniMaxH3VideoModel(model)) {
+        const is2k = /^(2k|2160|4k|2013)$/.test(normalized) || /\b2\s*k\b/.test(raw.toLowerCase());
+        const template = options?.requestTemplate || "";
+        const createPath = options?.createPath || "";
+        if (template.includes("2K (2013)") || (createPath.includes("/video_generation") && !createPath.includes("/v2/"))) return is2k ? "2K (2013)" : "768P";
+        return is2k ? "2K" : "768P";
     }
     if (normalized === "480") return "480p";
     if (normalized === "768") return "768P";
@@ -58,6 +66,21 @@ export function resolveUpstreamVideoResolution(model: string, value: unknown) {
     if (normalized === "4k") return "2160p";
     if (raw) return /p$/i.test(raw) ? raw : `${normalized}p`;
     return "720p";
+}
+
+export function resolveUpstreamVideoRatio(model: string, size: unknown, hasFirstFrame: boolean) {
+    const aspectRatio = normalizeVideoAspectRatio(size);
+    if (!isMiniMaxH3VideoModel(model)) return aspectRatio;
+    const raw = text(size).toLowerCase();
+    if (hasFirstFrame) return !raw || raw === "auto" || raw === "adaptive" ? "adaptive" : aspectRatio;
+    return aspectRatio;
+}
+
+export function sanitizeMiniMaxVideoPayload(model: string, payload: Record<string, unknown> | undefined) {
+    if (!payload || !isMiniMaxH3VideoModel(model)) return payload;
+    const next = { ...payload };
+    for (const key of ["generate_audio", "generateAudio", "watermark", "video_watermark", "quality"]) delete next[key];
+    return next;
 }
 
 export function videoResolutionEdge(model: string, value: unknown) {
@@ -89,7 +112,7 @@ function text(value: unknown) {
 }
 
 function normalizeVideoModelId(model: string) {
-    return model.trim().toLowerCase();
+    return model.trim().replace(/^models\//i, "").toLowerCase();
 }
 
 function parseDurationBounds(value: string) {

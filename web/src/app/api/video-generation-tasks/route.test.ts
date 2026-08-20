@@ -626,6 +626,36 @@ describe("video generation candidate failover", () => {
         expect(upstreamBody).not.toHaveProperty("referenceAudios");
     });
 
+    it("maps MiniMax-H3 custom requests to supported resolution and ratio values", async () => {
+        mocks.getAuthSettings.mockResolvedValue({
+            ...settings,
+            systemChannels: [
+                {
+                    ...channels[0],
+                    models: ["MiniMax-H3"],
+                    advancedConfig: {
+                        protocol: "custom",
+                        createPath: "/video_generation",
+                        queryPath: "/query/video_generation?task_id=",
+                        requestTemplate:
+                            '{"model":"{{model}}","content":"{{content}}","duration":5,"ratio":"{{ratio}}","resolution":"{{resolution}}","generate_audio":true,"watermark":false,"quality":"{{quality}}"}',
+                    },
+                },
+            ],
+            logicalModels: [{ ...settings.logicalModels[0], bindings: [{ ...settings.logicalModels[0].bindings[0], upstreamModel: "MiniMax-H3" }] }],
+        });
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "minimax-task", status: "queued" }));
+
+        const response = await POST(request({ model: "video", videoSeconds: "5", size: "auto", vquality: "2k", videoGenerateAudio: "true", videoWatermark: "false" }));
+        const upstreamBody = JSON.parse(String((mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit])[1].body));
+
+        expect(response.status).toBe(200);
+        expect(upstreamBody).toMatchObject({ model: "MiniMax-H3", duration: 5, ratio: "16:9", resolution: "2K (2013)" });
+        expect(upstreamBody).not.toHaveProperty("generate_audio");
+        expect(upstreamBody).not.toHaveProperty("watermark");
+        expect(upstreamBody).not.toHaveProperty("quality");
+    });
+
     it("selects the matching endpoint from a multi-preset GlobalAiOpc channel", async () => {
         mocks.getAuthSettings.mockResolvedValue({
             ...settings,
